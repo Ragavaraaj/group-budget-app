@@ -1,13 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
-import { devSignIn, newPerson, uniqueEmail } from './helpers';
-
-async function createGroup(page: Page, name: string) {
-  await page.goto('/groups');
-  await page.getByRole('button', { name: 'New' }).click();
-  await page.getByLabel('Group name').fill(name);
-  await page.getByRole('button', { name: 'Create group' }).click();
-  await expect(page.getByRole('heading', { name })).toBeVisible();
-}
+import { createGroup, devSignIn, newPerson, uniqueEmail } from './helpers';
 
 async function inviteLink(page: Page): Promise<string> {
   await page.getByRole('tab', { name: 'Members' }).click();

@@ -13,7 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "e2e:server": "wrangler d1 migrations apply DB --local --persist-to .wrangler/e2e && wrangler dev --port 8787 --persist-to .wrangler/e2e --var ENVIRONMENT:development --var ENABLE_DEV_LOGIN:1 --var LOG_LEVEL:warn"
+    "e2e:server": "wrangler d1 migrations apply DB --local --persist-to .wrangler/e2e && wrangler dev --port 8787 --test-scheduled --persist-to .wrangler/e2e --var ENVIRONMENT:development --var ENABLE_DEV_LOGIN:1 --var LOG_LEVEL:warn"
   },
   "dependencies": {
     "@budget/shared": "^0.1.0",

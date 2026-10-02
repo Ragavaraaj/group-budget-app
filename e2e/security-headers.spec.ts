@@ -40,7 +40,20 @@ test('the app runs with zero violations under the policy the Worker really serve
   expect(response?.headers()['content-security-policy']).toBeTruthy();
   await devSignIn(page, uniqueEmail('csp'));
 
-  for (const path of ['/', '/groups', '/add', '/settings/categories', '/settings']) {
+  for (const path of [
+    '/',
+    '/groups',
+    '/add',
+    '/settings/categories',
+    '/insights',
+    '/search',
+    '/budgets',
+    '/settings/recurring',
+    '/settings/recurring/new',
+    '/settings/import',
+    // Last: its server status card is what the next assertion looks at.
+    '/settings',
+  ]) {
     await page.goto(path);
     await expect(page.getByRole('heading').first()).toBeVisible();
   }
