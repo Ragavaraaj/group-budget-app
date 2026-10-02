@@ -41,7 +41,7 @@ group-budget-app/
 │        │                 each: pages, components, hooks
 │        └─ pwa/           SW registration · install prompt · update toast
 ├─ e2e/                    Playwright specs
-└─ .github/workflows/      ci.yml · deploy.yml (manual)
+└─ .github/workflows/      ci.yml (checks on PRs; merge to main also deploys)
 ```
 
 **Dependency rules** (enforced by Biome's `noRestrictedImports`, for both package-name and relative imports):
