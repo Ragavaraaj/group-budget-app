@@ -1,4 +1,14 @@
-import { type Browser, type BrowserContext, expect, type Page } from '@playwright/test';
+import {
+  type APIRequestContext,
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Page,
+  type PlaywrightWorkerArgs,
+} from '@playwright/test';
+
+/** Where `wrangler dev` serves the built app and the API (see playwright.config.ts). */
+export const ORIGIN = 'http://localhost:8787';
 
 let counter = 0;
 
@@ -102,4 +112,84 @@ export async function createGroup(page: Page, name: string): Promise<void> {
   await page.getByLabel('Group name').fill(name);
   await page.getByRole('button', { name: 'Create group' }).click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
+}
+
+/** An id that no group, expense or invite has: for visiting or calling things that don't exist. */
+export function missingId(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * A signed-in API client with no browser: for checking what the server allows and refuses.
+ * It sends the `Origin` header a browser would, which the server's CSRF check requires on
+ * anything that changes data, so a refusal from a test is never just a missing header.
+ */
+export async function signedInApi(
+  playwright: PlaywrightWorkerArgs['playwright'],
+  email: string,
+  name?: string,
+): Promise<APIRequestContext> {
+  const api = await playwright.request.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { origin: ORIGIN },
+  });
+  const response = await api.post('/api/auth/dev-login', { data: { email, name } });
+  if (!response.ok()) throw new Error(`dev login failed: ${response.status()}`);
+  return api;
+}
+
+/** Opens a tab of the group page (Expenses, Balances, Activity, Members). */
+export async function openGroupTab(page: Page, tab: string): Promise<void> {
+  await page.getByRole('tab', { name: tab }).click();
+}
+
+/** The owner makes an invite link on the Members tab and gets its address. */
+export async function createInviteLink(page: Page): Promise<string> {
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Invite people' }).click();
+  const link = page.getByLabel('Invite link');
+  await expect(link).toHaveValue(/\/join\//);
+  const value = await link.inputValue();
+  await page.keyboard.press('Escape');
+  return value;
+}
+
+/** Opens an invite link and joins the group. */
+export async function joinViaLink(page: Page, link: string): Promise<void> {
+  await page.goto(new URL(link).pathname);
+  await expect(page.getByText(/invited you to/)).toBeVisible();
+  await page.getByRole('button', { name: 'Join group' }).click();
+}
+
+/** The owner adds someone who doesn't use the app, on the Members tab. */
+export async function addPlaceholderMember(page: Page, name: string): Promise<void> {
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Add someone without the app' }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill(name);
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText(`${name} was added`)).toBeVisible();
+}
+
+/** Alice (signed in on `page`) with a new shared group and `Sam`, who is not on the app. */
+export async function groupWithPlaceholder(
+  page: Page,
+  groupName: string,
+  placeholder = 'Sam',
+): Promise<void> {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, groupName);
+  await addPlaceholderMember(page, placeholder);
+  await openGroupTab(page, 'Expenses');
+}
+
+/** Opens the add-expense form from a group's Expenses or Balances tab. */
+export async function openGroupExpenseForm(page: Page): Promise<void> {
+  await page.getByRole('link', { name: 'Add expense' }).click();
+  await expect(page.getByLabel('Amount', { exact: true })).toBeVisible();
+}
+
+/** The form's submit button, which stays disabled until what was typed can be saved. */
+export function submitButton(page: Page, label: 'Add expense' | 'Save changes' = 'Add expense') {
+  return page.getByRole('button', { name: label });
 }
