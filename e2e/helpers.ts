@@ -281,3 +281,16 @@ export async function chosenOption(page: Page, label: string): Promise<string> {
       : (el.textContent ?? ''),
   );
 }
+
+/**
+ * The hourly job that makes recurring expenses is shared by every test, and takes only the ten
+ * oldest rules that are due on each run. A test that saves a rule starting today and never runs
+ * the job leaves it waiting, and it then competes with the rules of the tests that do run the job.
+ * So a test that just needs a rule to exist starts it this far ahead, when nothing is due.
+ */
+export const NOT_DUE_FOR_DAYS = 60;
+
+/** Moves a new recurring rule's "First on" date out of the scheduled job's reach. */
+export async function startRuleLater(page: Page): Promise<void> {
+  await pickDate(page, 'First on', daysAgo(-NOT_DUE_FOR_DAYS));
+}

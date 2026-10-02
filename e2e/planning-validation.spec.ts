@@ -7,6 +7,7 @@ import {
   groupOfTwo,
   missingId,
   pickDate,
+  startRuleLater,
   uniqueEmail,
   waitForSynced,
 } from './helpers';
@@ -219,6 +220,7 @@ test.describe('recurring expenses: what is refused', () => {
     await page.goto('/settings/recurring/new');
     await page.getByLabel('Amount').fill('999');
     await page.getByLabel('What is it?').fill('Gym');
+    await startRuleLater(page);
     await page.getByRole('button', { name: 'Add recurring expense' }).click();
     await expect(page.getByTestId('recurring-list')).toContainText('₹999');
     await waitForSynced(page);
@@ -248,6 +250,7 @@ test.describe('recurring expenses in a group', () => {
     await page.goto(`/settings/recurring/new?group=${groupId}`);
     await page.getByLabel('Amount', { exact: true }).fill('12000');
     await page.getByLabel('What is it?').fill('Flat rent');
+    await startRuleLater(page);
     await page.getByRole('button', { name: 'Add recurring expense' }).click();
     await expect(page.getByTestId('recurring-list')).toContainText('Flat rent');
     await waitForSynced(page);

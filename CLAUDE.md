@@ -100,6 +100,17 @@ In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to it
   - Prefer accessible locators (`getByRole`, `getByLabel`) and the `data-testid`s already in the app;
     assert with web-first `expect(...)`, never `waitForTimeout` to "let something finish".
   - Negative paths matter here: refused input, expired sessions, someone not allowed in, offline.
+  - **Do not navigate away right after a click that writes.** Saves go to the local database
+    asynchronously, so `click()` then `page.goto()` can drop the write. Wait for what the write
+    shows (the saved row, a toast, the dialog closing) first, and be careful with assertions such as
+    "no such link", which are also true on the page you are about to leave.
+  - **The scheduled job is shared.** `runScheduledJob` runs the hourly job for every person's rules
+    and handles only the 10 oldest-due per run. A test that saves a recurring rule and does not run
+    the job must start it later (`startRuleLater` in `helpers.ts`), or it can starve the tests that do.
+  - A calendar closes with an animation: `pickDate` and `clearDate` wait for it, so use them
+    instead of clicking through the picker yourself.
+  - Use `chooseOption` for drop-downs, so a test works whether the control is a native select or the
+    shadcn Select (see BUG-005 in `docs/known-bugs.md`).
 - What is and is not covered, with counts: [`docs/testing.md`](docs/testing.md). Update it when you add specs.
 - **When a test finds a real bug**, do not weaken the test. Write the bug up in
   [`docs/known-bugs.md`](docs/known-bugs.md) (steps, expected, actual, cause, the test) and mark the

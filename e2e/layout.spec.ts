@@ -9,6 +9,7 @@ import {
   ORIGIN,
   openGroupExpenseForm,
   openGroupTab,
+  startRuleLater,
   uniqueEmail,
 } from './helpers';
 
@@ -109,6 +110,7 @@ test.describe('long names on a narrow phone', () => {
     await page.goto('/settings/recurring/new');
     await page.getByLabel('Amount').fill('5');
     await page.getByLabel('What is it?').fill('R'.repeat(200));
+    await startRuleLater(page);
     await page.getByRole('button', { name: 'Add recurring expense' }).click();
     await expect(page.getByTestId('recurring-list')).toBeVisible();
     await fits('recurring, long note');
