@@ -20,9 +20,9 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Primary"
-      className="bg-background/95 pb-safe supports-[backdrop-filter]:bg-background/80 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-40 px-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))]"
     >
-      <ul className="mx-auto grid max-w-xl grid-cols-4">
+      <ul className="bg-card mx-auto grid max-w-xl grid-cols-4 gap-1 rounded-[1.65rem] p-1.5 shadow-lg ring-1 shadow-black/10 ring-black/5 dark:ring-white/10">
         {items.map(({ to, label, icon: Icon, end }) => (
           <li key={to}>
             <NavLink
@@ -30,8 +30,10 @@ export function BottomNav() {
               end={end}
               className={({ isActive }) =>
                 cn(
-                  'flex flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors',
-                  isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+                  'flex flex-col items-center gap-0.5 rounded-[1.25rem] py-2 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                  isActive
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
                 )
               }
             >

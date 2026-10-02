@@ -36,7 +36,7 @@ function ToggleGroup({
       data-spacing={spacing}
       style={{ "--gap": spacing } as React.CSSProperties}
       className={cn(
-        "group/toggle-group flex w-fit items-center gap-[--spacing(var(--gap))] rounded-md data-[spacing=default]:data-[variant=outline]:shadow-xs",
+        "group/toggle-group flex w-fit items-center gap-[--spacing(var(--gap))] rounded-xl data-[spacing=0]:gap-1 data-[spacing=0]:rounded-2xl data-[spacing=0]:bg-muted data-[spacing=0]:p-1",
         className
       )}
       {...props}
@@ -70,7 +70,7 @@ function ToggleGroupItem({
           size: context.size || size,
         }),
         "w-auto min-w-0 shrink-0 px-3 focus:z-10 focus-visible:z-10",
-        "data-[spacing=0]:rounded-none data-[spacing=0]:shadow-none data-[spacing=0]:first:rounded-l-md data-[spacing=0]:last:rounded-r-md data-[spacing=0]:data-[variant=outline]:border-l-0 data-[spacing=0]:data-[variant=outline]:first:border-l",
+        "data-[spacing=0]:h-10 data-[spacing=0]:rounded-xl data-[spacing=0]:border-0 data-[spacing=0]:bg-transparent data-[spacing=0]:shadow-none data-[spacing=0]:font-semibold data-[spacing=0]:text-muted-foreground data-[spacing=0]:data-[state=on]:bg-card data-[spacing=0]:data-[state=on]:text-foreground data-[spacing=0]:data-[state=on]:shadow-sm data-[spacing=0]:hover:text-foreground",
         className
       )}
       {...props}

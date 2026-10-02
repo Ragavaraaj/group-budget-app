@@ -3,50 +3,60 @@
 
 /* Dark mode follows the OS setting (Tailwind's default `dark:` variant is prefers-color-scheme),
    so there is no theme flash and no JavaScript involved. Tokens follow shadcn's neutral theme,
-   with a teal primary to match the app icon. */
+   with a deep teal primary to match the app icon. */
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.511 0.096 186.391);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --radius: 0.875rem;
+  --background: #f2f6f5;
+  --foreground: #0f1f1d;
+  --card: #ffffff;
+  --card-foreground: #0f1f1d;
+  --popover: #ffffff;
+  --popover-foreground: #0f1f1d;
+  --primary: #0f766e;
+  --primary-foreground: #ffffff;
+  --secondary: #e3ebe9;
+  --secondary-foreground: #0f1f1d;
+  --muted: #e3ebe9;
+  --muted-foreground: #566663;
+  --accent: #e3f2f0;
+  --accent-foreground: #0b5a54;
+  --destructive: #c2410c;
+  --border: #e1e9e7;
+  --input: #cdd9d6;
+  --ring: #0f766e;
+  /* The deep teal summary cards, and the colours for money owed to / by you. They are teal and
+     orange rather than green and red so they stay distinguishable for colour-blind people. */
+  --hero: #0b5a54;
+  --hero-foreground: #ffffff;
+  --positive: #0f766e;
+  --negative: #c2410c;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.777 0.152 181.912);
-    --primary-foreground: oklch(0.145 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
+    --background: #0a1211;
+    --foreground: #eaf2f0;
+    --card: #121e1c;
+    --card-foreground: #eaf2f0;
+    --popover: #162321;
+    --popover-foreground: #eaf2f0;
+    --primary: #2dd4bf;
+    --primary-foreground: #04201d;
+    --secondary: #1c2c2a;
+    --secondary-foreground: #eaf2f0;
+    --muted: #1c2c2a;
+    --muted-foreground: #93a8a4;
+    --accent: #17302d;
+    --accent-foreground: #7ee8d9;
+    --destructive: #fb923c;
     --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+    --input: oklch(1 0 0 / 16%);
+    --ring: #2dd4bf;
+    --hero: #0f3f3b;
+    --hero-foreground: #f2fbf9;
+    --positive: #5eead4;
+    --negative: #fb923c;
   }
 }
 
@@ -55,6 +65,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -73,6 +84,10 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-hero: var(--hero);
+  --color-hero-foreground: var(--hero-foreground);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
 }
 
 @layer base {

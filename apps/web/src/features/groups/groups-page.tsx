@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useMe } from '@/auth/sync-context';
 import { PageHeader } from '@/components/page-header';
+import { PersonAvatar } from '@/components/person-avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -47,7 +48,7 @@ export function GroupsPage() {
           </CardContent>
         </Card>
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <ul className="bg-card divide-y overflow-hidden rounded-2xl shadow-xs">
           {shared.map((group) => (
             <GroupRow key={group.id} group={group} />
           ))}
@@ -79,8 +80,9 @@ function GroupRow({ group }: { group: LocalGroup }) {
         to={`/groups/${group.id}`}
         className="hover:bg-accent flex items-center gap-3 p-4 transition-colors"
       >
+        <PersonAvatar id={group.id} name={group.name} className="rounded-2xl" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium">{group.name}</span>
+          <span className="block truncate font-semibold">{group.name}</span>
           <span className="text-muted-foreground block text-xs">
             {count === undefined ? ' ' : `${count} ${count === 1 ? 'person' : 'people'}`}
           </span>
@@ -88,9 +90,9 @@ function GroupRow({ group }: { group: LocalGroup }) {
         {mine !== null ? (
           <span
             className={cn(
-              'text-sm font-medium tabular-nums',
-              mine > 0 && 'text-emerald-600 dark:text-emerald-400',
-              mine < 0 && 'text-destructive',
+              'text-sm font-semibold tabular-nums',
+              mine > 0 && 'text-positive',
+              mine < 0 && 'text-negative',
               mine === 0 && 'text-muted-foreground',
             )}
           >

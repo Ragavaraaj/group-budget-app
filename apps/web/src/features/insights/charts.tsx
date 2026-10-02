@@ -52,7 +52,7 @@ export function TrendChart({ data, caption }: { data: BarDatum[]; caption: strin
                 y={HEIGHT - LABEL_SPACE - height}
                 width={barWidth}
                 height={height}
-                rx={3}
+                rx={6}
                 className={d.selected ? 'fill-primary' : 'fill-primary/35'}
               />
               <text

@@ -1,19 +1,12 @@
 import { formatPaise } from '@budget/shared';
-import {
-  ArrowLeft,
-  ChartColumn,
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  Plus,
-  Search,
-} from 'lucide-react';
+import { ArrowLeft, ChartColumn, Pencil, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useMe } from '@/auth/sync-context';
+import { AddExpenseFab } from '@/components/add-expense-fab';
+import { HeroCard, HeroStepper } from '@/components/hero-card';
 import { NotFoundPage } from '@/components/not-found-page';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -117,18 +110,9 @@ export function GroupPage() {
       </Tabs>
 
       {tab === 'expenses' || tab === 'balances' ? (
-        <Button
-          asChild
-          size="icon"
-          className="fixed right-4 bottom-20 z-30 size-14 rounded-full shadow-lg"
-        >
-          <Link
-            to={`/add?group=${id}&from=${encodeURIComponent(`/groups/${id}?tab=${tab}`)}`}
-            aria-label="Add expense"
-          >
-            <Plus className="size-6" />
-          </Link>
-        </Button>
+        <AddExpenseFab
+          to={`/add?group=${id}&from=${encodeURIComponent(`/groups/${id}?tab=${tab}`)}`}
+        />
       ) : null}
 
       <RenameGroupDialog
@@ -153,37 +137,26 @@ function ExpensesTab({ groupId, members }: { groupId: string; members: LocalMemb
   return (
     <>
       <BudgetAlerts groupId={groupId} />
-      <Card>
-        <CardContent className="space-y-1">
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Previous month"
-              onClick={() => setPicked(addMonths(month, -1))}
-            >
-              <ChevronLeft />
-            </Button>
-            <span className="font-medium">{formatPeriod(month, startDay)}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Next month"
-              disabled={month >= now}
-              onClick={() => setPicked(addMonths(month, 1))}
-            >
-              <ChevronRight />
-            </Button>
-          </div>
+      <HeroCard>
+        <HeroStepper
+          label={formatPeriod(month, startDay)}
+          previousLabel="Previous month"
+          nextLabel="Next month"
+          nextDisabled={month >= now}
+          onPrevious={() => setPicked(addMonths(month, -1))}
+          onNext={() => setPicked(addMonths(month, 1))}
+        />
+        <div className="text-center">
+          <p className="text-hero-foreground/80 text-sm">Group spending</p>
           <p
-            className="text-center text-2xl font-semibold tabular-nums"
+            className="text-4xl font-bold tracking-tight tabular-nums"
             data-testid="group-month-total"
           >
             <span className="sr-only">Group spending this month: </span>
             {formatPaise(total)}
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </HeroCard>
 
       {!expenses || !categories ? (
         <Skeleton className="h-14" />
