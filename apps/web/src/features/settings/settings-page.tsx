@@ -14,6 +14,7 @@ import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/auth-context';
 import { useDb, useEngine, useMe, useSyncStatus } from '@/auth/sync-context';
+import { HeroCard } from '@/components/hero-card';
 import { PageHeader } from '@/components/page-header';
 import {
   AlertDialog,
@@ -52,37 +53,46 @@ const REASONS: Record<string, string> = {
 export function SettingsPage() {
   const { user } = useMe();
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader title="Settings" />
 
-      <Card>
-        <CardContent className="flex items-center gap-3">
-          <Avatar className="size-12">
-            {user.avatarUrl ? (
-              <AvatarImage src={user.avatarUrl} alt="" referrerPolicy="no-referrer" />
-            ) : null}
-            <AvatarFallback>{initials(user.displayName)}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="truncate font-medium">{user.displayName}</p>
-            <p className="text-muted-foreground truncate text-sm">{user.email}</p>
-          </div>
-        </CardContent>
-      </Card>
+      <HeroCard className="flex items-center gap-4 px-5 py-5">
+        <Avatar className="size-14 ring-2 ring-white/25">
+          {user.avatarUrl ? (
+            <AvatarImage src={user.avatarUrl} alt="" referrerPolicy="no-referrer" />
+          ) : null}
+          <AvatarFallback className="bg-white/15 text-lg font-bold text-white">
+            {initials(user.displayName)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="truncate text-lg font-bold tracking-tight">{user.displayName}</p>
+          <p className="text-hero-foreground/80 truncate text-sm">{user.email}</p>
+        </div>
+      </HeroCard>
 
       <SyncCard />
 
-      <Card>
-        <CardContent className="divide-y p-0">
+      <Card className="gap-0 overflow-hidden py-0">
+        <CardContent className="divide-y px-0">
           {[
             { to: '/settings/categories', label: 'Categories', icon: Tags },
             { to: '/budgets', label: 'Budgets', icon: PiggyBank },
             { to: '/settings/recurring', label: 'Recurring expenses', icon: Repeat },
             { to: '/settings/import', label: 'Import from CSV', icon: FileUp },
           ].map(({ to, label, icon: Icon }) => (
-            <Link key={to} to={to} className="hover:bg-accent flex items-center gap-3 p-4">
-              <Icon className="size-5" aria-hidden="true" />
-              <span className="flex-1 font-medium">{label}</span>
+            <Link
+              key={to}
+              to={to}
+              className="hover:bg-accent/60 flex min-h-16 items-center gap-3 px-4 py-3 transition-colors"
+            >
+              <span
+                className="bg-accent text-accent-foreground grid size-10 place-items-center rounded-2xl"
+                aria-hidden="true"
+              >
+                <Icon className="size-5" />
+              </span>
+              <span className="flex-1 font-semibold">{label}</span>
               <ChevronRight className="text-muted-foreground size-4" aria-hidden="true" />
             </Link>
           ))}
@@ -181,7 +191,7 @@ function ReportingCard() {
         <Label htmlFor="month-start">A month starts on day</Label>
         <select
           id="month-start"
-          className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+          className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-11 w-full rounded-xl border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] md:text-sm"
           value={day}
           onChange={(e) => void setMeta(db, MONTH_START_KEY, Number(e.target.value))}
         >
@@ -271,7 +281,13 @@ function SignOut() {
 
   return (
     <>
-      <Button variant="outline" className="w-full" disabled={offline} onClick={() => setOpen(true)}>
+      <Button
+        variant="outline"
+        size="lg"
+        className="text-destructive w-full"
+        disabled={offline}
+        onClick={() => setOpen(true)}
+      >
         <LogOut /> Sign out
       </Button>
       {offline ? (

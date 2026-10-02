@@ -1,5 +1,5 @@
 import { formatPaise, parseRupees } from '@budget/shared';
-import { ArrowLeft, Search, X } from 'lucide-react';
+import { ArrowLeft, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Button } from '@/components/ui/button';
@@ -87,7 +87,7 @@ export function SearchPage() {
 
       <div className="relative">
         <Search
-          className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
+          className="text-muted-foreground pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2"
           aria-hidden="true"
         />
         <Input
@@ -95,122 +95,136 @@ export function SearchPage() {
           autoFocus
           aria-label="Search expenses"
           placeholder="Words, a category, an amount…"
-          className="pl-9"
+          className="bg-card h-12 rounded-2xl pl-11 text-base shadow-xs [&::-webkit-search-cancel-button]:appearance-none"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="search-category">Category</Label>
-          <Select
-            value={category ?? ANY}
-            onValueChange={(value) => setCategory(value === ANY ? null : value)}
-          >
-            <SelectTrigger id="search-category" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ANY}>Any</SelectItem>
-              <SelectItem value="none">No category</SelectItem>
-              {choices.map((c) => (
-                <SelectItem key={c.value} value={c.value}>
-                  {c.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <Card className="gap-3 py-4">
+        <div className="flex items-center justify-between px-5">
+          <h2 className="flex items-center gap-2 text-base font-bold tracking-tight">
+            <SlidersHorizontal className="size-4" aria-hidden="true" /> Filters
+          </h2>
+          {searching ? (
+            <Button variant="ghost" size="sm" onClick={clear}>
+              <X /> Clear search
+            </Button>
+          ) : null}
         </div>
-        {groups && groups.length > 1 ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="search-group">Group</Label>
-            <Select
-              value={scoped?.id ?? ANY}
-              onValueChange={(value) =>
-                value === ANY
-                  ? setParams({}, { replace: true })
-                  : setParams({ group: value }, { replace: true })
-              }
-            >
-              <SelectTrigger id="search-group" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ANY}>All my groups</SelectItem>
-                {groups.map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.isPersonal ? 'Personal' : g.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="search-category">Category</Label>
+              <Select
+                value={category ?? ANY}
+                onValueChange={(value) => setCategory(value === ANY ? null : value)}
+              >
+                <SelectTrigger id="search-category" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any</SelectItem>
+                  <SelectItem value="none">No category</SelectItem>
+                  {choices.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {groups && groups.length > 1 ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="search-group">Group</Label>
+                <Select
+                  value={scoped?.id ?? ANY}
+                  onValueChange={(value) =>
+                    value === ANY
+                      ? setParams({}, { replace: true })
+                      : setParams({ group: value }, { replace: true })
+                  }
+                >
+                  <SelectTrigger id="search-group" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ANY}>All my groups</SelectItem>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.isPersonal ? 'Personal' : g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="search-from">From</Label>
-          <Input
-            id="search-from"
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="search-to">To</Label>
-          <Input id="search-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="search-min">At least (₹)</Label>
-          <Input
-            id="search-min"
-            inputMode="decimal"
-            autoComplete="off"
-            value={min}
-            onChange={(e) => setMin(e.target.value)}
-            aria-invalid={min.trim() !== '' && parseRupees(min) === null}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="search-max">At most (₹)</Label>
-          <Input
-            id="search-max"
-            inputMode="decimal"
-            autoComplete="off"
-            value={max}
-            onChange={(e) => setMax(e.target.value)}
-            aria-invalid={max.trim() !== '' && parseRupees(max) === null}
-          />
-        </div>
-      </div>
-
-      {searching ? (
-        <Button variant="ghost" size="sm" onClick={clear}>
-          <X /> Clear search
-        </Button>
-      ) : null}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="search-from">From</Label>
+              <Input
+                id="search-from"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="search-to">To</Label>
+              <Input
+                id="search-to"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="search-min">At least (₹)</Label>
+              <Input
+                id="search-min"
+                inputMode="decimal"
+                autoComplete="off"
+                value={min}
+                onChange={(e) => setMin(e.target.value)}
+                aria-invalid={min.trim() !== '' && parseRupees(min) === null}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="search-max">At most (₹)</Label>
+              <Input
+                id="search-max"
+                inputMode="decimal"
+                autoComplete="off"
+                value={max}
+                onChange={(e) => setMax(e.target.value)}
+                aria-invalid={max.trim() !== '' && parseRupees(max) === null}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {!results || !categories ? (
         <Skeleton className="h-24" />
       ) : !searching ? (
-        <Card>
-          <CardContent className="text-muted-foreground text-center text-sm">
-            Type something above, or pick a category, dates or an amount.
-          </CardContent>
-        </Card>
+        <div className="text-muted-foreground flex flex-col items-center gap-2 py-8 text-center text-sm">
+          <Search className="size-8 opacity-50" aria-hidden="true" />
+          <p>Type something above, or pick a category, dates or an amount.</p>
+        </div>
       ) : results.length === 0 ? (
-        <Card>
-          <CardContent className="text-center text-sm" data-testid="search-empty">
-            Nothing matches.
-          </CardContent>
-        </Card>
+        <div
+          className="text-muted-foreground flex flex-col items-center gap-2 py-8 text-center text-sm"
+          data-testid="search-empty"
+        >
+          <SearchX className="size-8 opacity-50" aria-hidden="true" />
+          <p>Nothing matches.</p>
+        </div>
       ) : (
         <>
           <p
-            className="text-muted-foreground text-sm"
+            className="text-muted-foreground px-1 text-sm font-medium"
             data-testid="search-summary"
             aria-live="polite"
           >
