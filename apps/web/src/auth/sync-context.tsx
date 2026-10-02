@@ -9,14 +9,16 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { type BudgetDb, getDb } from '@/db/database';
-import { httpSyncApi } from '@/sync/api';
+import { createHttpSyncApi } from '@/sync/api';
 import { SyncEngine, type SyncStatus } from '@/sync/engine';
+import { LiveChannel } from '@/sync/live';
 import { useAuth } from './auth-context';
 
 interface SignedIn {
   me: MeResponse;
   db: BudgetDb;
   engine: SyncEngine;
+  live: LiveChannel;
 }
 
 const SignedInContext = createContext<SignedIn | null>(null);
@@ -32,9 +34,20 @@ export function SignedInProvider({ me, children }: { me: MeResponse; children: R
   // The database and engine belong to the person, so they survive re-checks of the session.
   const stack = useMemo(() => {
     const db = getDb(userId);
-    const engine = new SyncEngine({
+    // The live connection and the engine need each other: it tells the engine about news, and
+    // the engine's pushes carry its id. `engine` is assigned just below, before anything runs.
+    let engine: SyncEngine;
+    const live = new LiveChannel({
+      onChanged: () => engine.onLiveNews(),
+      onConnection: (connected) => engine.setLive(connected),
+      canConnect: () =>
+        navigator.onLine &&
+        document.visibilityState === 'visible' &&
+        engine.getSnapshot().state !== 'signed_out',
+    });
+    engine = new SyncEngine({
       db,
-      api: httpSyncApi,
+      api: createHttpSyncApi(() => live.id),
       userId,
       events: {
         onConflicts: (count) =>
@@ -47,15 +60,19 @@ export function SignedInProvider({ me, children }: { me: MeResponse; children: R
           toast.error(
             `${rejections.length} change${rejections.length === 1 ? '' : 's'} couldn’t be saved to the server and ${rejections.length === 1 ? 'was' : 'were'} undone on this device. See Settings.`,
           ),
-        onRemoved: (name) => toast.info(`You’re no longer in “${name}”.`),
+        onRemoved: (name) =>
+          toast.info(
+            `“${name}” is no longer available to you: you were removed, or the group was deleted.`,
+          ),
       },
     });
-    return { db, engine };
+    return { db, engine, live };
   }, [userId]);
   const value = useMemo<SignedIn>(() => ({ me, ...stack }), [me, stack]);
 
   useEffect(() => {
     value.engine.start();
+    value.live.start();
     // Ask the browser not to evict our data under storage pressure (best effort).
     void navigator.storage?.persist?.();
     const unsubscribe = value.engine.subscribe(() => {
@@ -63,7 +80,11 @@ export function SignedInProvider({ me, children }: { me: MeResponse; children: R
     });
     return () => {
       unsubscribe();
+      // The engine first: stopping the connection tells it "no longer live", and a stopped
+      // engine ignores that, where a running one would start a sync it can't finish (the
+      // database may be gone by then, after sign-out) or one that duplicates the next provider's.
       value.engine.stop();
+      value.live.stop();
     };
   }, [value, markSessionExpired]);
 

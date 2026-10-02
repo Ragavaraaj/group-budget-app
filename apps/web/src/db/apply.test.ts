@@ -1,9 +1,17 @@
 import { uuidv7 } from '@budget/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { categoryRow, emptyPull, expenseRow, groupRow, memberRow } from '../test-helpers';
+import {
+  budgetRow,
+  categoryRow,
+  emptyPull,
+  expenseRow,
+  groupRow,
+  memberRow,
+  recurringRow,
+} from '../test-helpers';
 import { applyPull, BACKFILL_PREFIX } from './apply';
 import { BudgetDb, getMeta } from './database';
-import { saveExpense } from './repo';
+import { saveBudget, saveExpense } from './repo';
 
 const ME = uuidv7();
 const OTHER = uuidv7();
@@ -150,5 +158,59 @@ describe('joining a group after the first sync', () => {
       false,
     );
     expect(await getMeta(db, 'cursor')).toBe(100);
+  });
+});
+
+describe('applyPull: budgets and recurring rules', () => {
+  it('stores them like any other synced row', async () => {
+    const b = budgetRow(G, ME, { serverSeq: 3 });
+    const r = recurringRow(G, ME, { serverSeq: 4, lastGeneratedOn: '2026-10-01' });
+    await apply(emptyPull({ cursor: 4, budgets: [b], recurring: [r] }));
+    expect(await db.budgets.get(b.id)).toEqual(b);
+    expect(await db.recurring.get(r.id)).toEqual(r);
+  });
+
+  it('leaves a budget alone while this device has an unsent edit of it', async () => {
+    const b = budgetRow(G, ME, { serverSeq: 3, amountMinor: 100 });
+    await apply(emptyPull({ cursor: 3, budgets: [b] }));
+    await saveBudget(db, ME, { id: b.id, groupId: G, categoryId: null, amountMinor: 999 });
+
+    await apply(emptyPull({ cursor: 8, budgets: [{ ...b, amountMinor: 555, serverSeq: 8 }] }));
+    expect((await db.budgets.get(b.id))?.amountMinor).toBe(999);
+  });
+
+  it('takes a newer version of a rule, including what the server worked out', async () => {
+    const r = recurringRow(G, ME, { serverSeq: 4 });
+    await apply(emptyPull({ cursor: 4, recurring: [r] }));
+    await apply(
+      emptyPull({
+        cursor: 9,
+        recurring: [{ ...r, lastGeneratedOn: '2026-12-01', serverSeq: 9 }],
+      }),
+    );
+    expect((await db.recurring.get(r.id))?.lastGeneratedOn).toBe('2026-12-01');
+  });
+
+  it('removes them with the rest of a group when the person is removed from it', async () => {
+    const b = budgetRow(G, ME);
+    const r = recurringRow(G, ME);
+    await apply(
+      emptyPull({
+        cursor: 2,
+        groups: [groupRow(G, OTHER)],
+        members: [memberRow(G, ME)],
+        budgets: [b],
+        recurring: [r],
+      }),
+    );
+    await apply(
+      emptyPull({
+        cursor: 6,
+        members: [memberRow(G, ME, { removedAt: 5, serverSeq: 6 })],
+      }),
+      2,
+    );
+    expect(await db.budgets.count()).toBe(0);
+    expect(await db.recurring.count()).toBe(0);
   });
 });

@@ -29,6 +29,8 @@ export async function purgeGroup(db: BudgetDb, groupId: string): Promise<void> {
     db.categories.where('groupId').equals(groupId).delete(),
     db.expenses.where('groupId').equals(groupId).delete(),
     db.settlements.where('groupId').equals(groupId).delete(),
+    db.budgets.where('groupId').equals(groupId).delete(),
+    db.recurring.where('groupId').equals(groupId).delete(),
   ]);
   const queued = await db.outbox.toArray();
   const stale = queued.filter((entry) => entry.groupId === groupId).map((entry) => entry.seq);
@@ -51,6 +53,8 @@ export function applyPull(
     db.categories,
     db.expenses,
     db.settlements,
+    db.budgets,
+    db.recurring,
     db.outbox,
     db.meta,
   ];
@@ -113,6 +117,8 @@ export function applyPull(
       category: response.categories,
       expense: response.expenses,
       settlement: response.settlements,
+      budget: response.budgets,
+      recurring: response.recurring,
     };
     for (const entity of ENTITY_NAMES) {
       await put(

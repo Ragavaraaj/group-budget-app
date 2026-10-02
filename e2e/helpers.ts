@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { type Browser, type BrowserContext, expect, type Page } from '@playwright/test';
 
 let counter = 0;
 
@@ -40,4 +40,57 @@ export async function waitForSynced(page: Page): Promise<void> {
     .getByRole('status')
     .filter({ hasText: /^Synced$/ })
     .waitFor();
+}
+
+/** "YYYY-MM-DD" in this machine's local time, `days` days before today. */
+export function daysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return localIso(d);
+}
+
+/** The 15th of the calendar month before this one: always inside that month, whatever today is. */
+export function midPreviousMonth(): string {
+  const now = new Date();
+  return localIso(new Date(now.getFullYear(), now.getMonth() - 1, 15));
+}
+
+function localIso(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Adds a personal expense through the form, on a given day. */
+export async function addExpenseOn(
+  page: Page,
+  details: { amount: string; note: string; category?: string; date?: string },
+): Promise<void> {
+  await page.getByRole('link', { name: 'Add expense' }).click();
+  await page.getByLabel('Amount').fill(details.amount);
+  if (details.category) {
+    // The form remembers the last category per group, so it may already be chosen: a second tap
+    // would clear it.
+    const chip = page.getByRole('button', { name: details.category, exact: true });
+    if ((await chip.getAttribute('aria-pressed')) !== 'true') await chip.click();
+  }
+  if (details.date) await page.getByLabel('Date').fill(details.date);
+  await page.getByLabel('Note (optional)').fill(details.note);
+  await page.getByRole('button', { name: 'Add expense' }).click();
+  // The form closes only after the expense has been written to the local database.
+  await page.getByLabel('Amount').waitFor({ state: 'hidden' });
+}
+
+/** Runs the Worker's scheduled job once, as Cloudflare's cron would (`wrangler dev --test-scheduled`). */
+export async function runScheduledJob(page: Page): Promise<void> {
+  const response = await page.request.get('http://localhost:8787/cdn-cgi/handler/scheduled');
+  if (!response.ok()) throw new Error(`scheduled job failed: ${response.status()}`);
+}
+
+/** Creates a shared group from the Groups screen and lands on its page. */
+export async function createGroup(page: Page, name: string): Promise<void> {
+  await page.goto('/groups');
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByLabel('Group name').fill(name);
+  await page.getByRole('button', { name: 'Create group' }).click();
+  await expect(page.getByRole('heading', { name })).toBeVisible();
 }

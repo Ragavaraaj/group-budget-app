@@ -1,9 +1,11 @@
 import { PAISE_PER_RUPEE } from '@budget/shared';
 import type {
+  LocalBudget,
   LocalCategory,
   LocalExpense,
   LocalGroup,
   LocalMember,
+  LocalRecurring,
   LocalSettlement,
 } from '@/db/types';
 
@@ -16,6 +18,8 @@ export interface ExportBundle {
   categories: LocalCategory[];
   expenses: LocalExpense[];
   settlements: LocalSettlement[];
+  budgets: LocalBudget[];
+  recurring: LocalRecurring[];
 }
 
 /**

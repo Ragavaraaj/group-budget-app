@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { MAX_MUTATIONS_PER_PUSH, PULL_DEFAULT_LIMIT, PULL_MAX_LIMIT } from '../limits';
 import {
+  budgetDataSchema,
+  budgetRowSchema,
   categoryDataSchema,
   categoryRowSchema,
   ENTITY_NAMES,
@@ -8,6 +10,8 @@ import {
   expenseRowSchema,
   groupRowSchema,
   memberRowSchema,
+  recurringDataSchema,
+  recurringRowSchema,
   settlementDataSchema,
   settlementRowSchema,
   uuidSchema,
@@ -41,6 +45,18 @@ const upsertMutationSchema = z.union([
     entity: z.literal('settlement'),
     data: settlementDataSchema,
   }),
+  z.object({
+    ...mutationBase,
+    op: z.literal('upsert'),
+    entity: z.literal('budget'),
+    data: budgetDataSchema,
+  }),
+  z.object({
+    ...mutationBase,
+    op: z.literal('upsert'),
+    entity: z.literal('recurring'),
+    data: recurringDataSchema,
+  }),
 ]);
 
 /** Delete (tombstone) or undo a delete. */
@@ -73,6 +89,8 @@ export const REJECT_REASONS = [
   'deleted',
   'group_mismatch',
   'invalid_reference',
+  /** The group already has as many budgets or recurring rules as it may. */
+  'limit_reached',
 ] as const;
 export type RejectReason = (typeof REJECT_REASONS)[number];
 
@@ -105,5 +123,8 @@ export const pullResponseSchema = z.object({
   categories: z.array(categoryRowSchema),
   expenses: z.array(expenseRowSchema),
   settlements: z.array(settlementRowSchema),
+  // Added later: a client talking to a server that predates them still parses the page.
+  budgets: z.array(budgetRowSchema).default([]),
+  recurring: z.array(recurringRowSchema).default([]),
 });
 export type PullResponse = z.infer<typeof pullResponseSchema>;

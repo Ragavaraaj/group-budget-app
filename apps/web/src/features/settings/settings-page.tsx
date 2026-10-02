@@ -1,5 +1,14 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronRight, Download, LogOut, RefreshCw, Tags } from 'lucide-react';
+import {
+  ChevronRight,
+  Download,
+  FileUp,
+  LogOut,
+  PiggyBank,
+  RefreshCw,
+  Repeat,
+  Tags,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -19,7 +28,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { getMeta, setMeta } from '@/db/database';
+import { MONTH_START_KEY, useMonthStartDay } from '@/db/hooks';
 import type { Rejection } from '@/db/types';
 import { ServerStatusCard } from '@/features/status/server-status-card';
 import { download, type ExportBundle, expensesToCsv, exportToJson } from '@/lib/export';
@@ -35,6 +46,7 @@ const REASONS: Record<string, string> = {
   invalid_reference: 'it refers to something that isn’t in the group',
   not_found: 'it no longer exists',
   invalid: 'the server couldn’t read it',
+  limit_reached: 'the group already has as many as it can hold',
 };
 
 export function SettingsPage() {
@@ -61,14 +73,23 @@ export function SettingsPage() {
       <SyncCard />
 
       <Card>
-        <CardContent className="p-0">
-          <Link to="/settings/categories" className="hover:bg-accent flex items-center gap-3 p-4">
-            <Tags className="size-5" aria-hidden="true" />
-            <span className="flex-1 font-medium">Categories</span>
-            <ChevronRight className="text-muted-foreground size-4" aria-hidden="true" />
-          </Link>
+        <CardContent className="divide-y p-0">
+          {[
+            { to: '/settings/categories', label: 'Categories', icon: Tags },
+            { to: '/budgets', label: 'Budgets', icon: PiggyBank },
+            { to: '/settings/recurring', label: 'Recurring expenses', icon: Repeat },
+            { to: '/settings/import', label: 'Import from CSV', icon: FileUp },
+          ].map(({ to, label, icon: Icon }) => (
+            <Link key={to} to={to} className="hover:bg-accent flex items-center gap-3 p-4">
+              <Icon className="size-5" aria-hidden="true" />
+              <span className="flex-1 font-medium">{label}</span>
+              <ChevronRight className="text-muted-foreground size-4" aria-hidden="true" />
+            </Link>
+          ))}
         </CardContent>
       </Card>
+
+      <ReportingCard />
 
       <ExportCard />
       <InstallCard />
@@ -81,7 +102,7 @@ export function SettingsPage() {
 function SyncCard() {
   const db = useDb();
   const engine = useEngine();
-  const { state, lastSyncedAt } = useSyncStatus();
+  const { state, lastSyncedAt, live } = useSyncStatus();
   const waiting = useLiveQuery(() => db.outbox.count(), [db]) ?? 0;
   const oldest = useLiveQuery(
     async () => (await db.outbox.orderBy('seq').first())?.createdAt,
@@ -109,6 +130,7 @@ function SyncCard() {
                   ? `Last synced at ${new Date(lastSyncedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}.`
                   : 'Syncing…'}
           {waiting > 0 ? ` ${waiting} change${waiting === 1 ? '' : 's'} waiting to be sent.` : ''}
+          {live ? ' Live: changes from other people arrive as they happen.' : ''}
         </p>
         {stale ? (
           <p role="alert" className="text-destructive">
@@ -146,6 +168,38 @@ function SyncCard() {
   );
 }
 
+/** The day a "month" starts on, for the month views, insights and budgets. */
+function ReportingCard() {
+  const db = useDb();
+  const day = useMonthStartDay();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Months</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <Label htmlFor="month-start">A month starts on day</Label>
+        <select
+          id="month-start"
+          className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+          value={day}
+          onChange={(e) => void setMeta(db, MONTH_START_KEY, Number(e.target.value))}
+        >
+          {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+            <option key={d} value={d}>
+              {d === 1 ? '1 (calendar months)' : String(d)}
+            </option>
+          ))}
+        </select>
+        <p className="text-muted-foreground text-xs">
+          If your salary arrives on the 25th, pick 25 and a “month” runs from the 25th to the 24th.
+          This applies on this device, to your own views.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ExportCard() {
   const db = useDb();
   const { user } = useMe();
@@ -158,6 +212,8 @@ function ExportCard() {
     categories: await db.categories.toArray(),
     expenses: await db.expenses.toArray(),
     settlements: await db.settlements.toArray(),
+    budgets: await db.budgets.toArray(),
+    recurring: await db.recurring.toArray(),
   });
   const stamp = new Date().toISOString().slice(0, 10);
 

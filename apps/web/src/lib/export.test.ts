@@ -37,6 +37,8 @@ describe('expensesToCsv', () => {
     categories: [cat],
     expenses,
     settlements: [],
+    budgets: [],
+    recurring: [],
   });
 
   it('writes a header and one line per live expense, newest first, in rupees', () => {

@@ -1,4 +1,11 @@
-import { addMonths, toLocalDate } from '@budget/shared';
+import {
+  addDays,
+  addMonths,
+  fiscalYearLabel,
+  periodKeyOf,
+  periodRange,
+  toLocalDate,
+} from '@budget/shared';
 
 /** "2026-10-02" as local calendar parts. Never goes through a Date in UTC, so no off-by-one days. */
 function parts(date: string): { y: number; m: number; d: number } {
@@ -34,7 +41,32 @@ export function formatMonth(key: string): string {
 /** The month key for today. */
 export const currentMonth = () => toLocalDate().slice(0, 7);
 
-export { addMonths };
+/** "Oct", for a chart axis. */
+export function formatMonthShort(key: string): string {
+  return localDate(`${key}-01`).toLocaleDateString('en-IN', { month: 'short' });
+}
+
+const shortDate = (date: string, withYear: boolean) =>
+  localDate(date).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    ...(withYear ? { year: 'numeric' } : {}),
+  });
+
+/**
+ * A reporting period's name: "October 2026" for a calendar month, "25 Oct – 24 Nov 2026" when
+ * the month is set to start on another day.
+ */
+export function formatPeriod(key: string, startDay = 1): string {
+  if (startDay === 1) return formatMonth(key);
+  const { start, endExclusive } = periodRange(key, startDay);
+  return `${shortDate(start, false)} – ${shortDate(addDays(endExclusive, -1), true)}`;
+}
+
+/** The period that contains today. */
+export const currentPeriod = (startDay = 1) => periodKeyOf(toLocalDate(), startDay);
+
+export { addMonths, fiscalYearLabel };
 
 /** Initials for an avatar fallback: "Asha Rao" → "AR". */
 export function initials(name: string): string {

@@ -1,5 +1,13 @@
 import { formatPaise } from '@budget/shared';
-import { ArrowLeft, ChevronLeft, ChevronRight, Pencil, Plus } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChartColumn,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Plus,
+  Search,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useMe } from '@/auth/sync-context';
@@ -15,10 +23,12 @@ import {
   useExpensesInMonth,
   useGroup,
   useMembers,
+  useMonthStartDay,
 } from '@/db/hooks';
 import type { LocalMember } from '@/db/types';
+import { BudgetAlerts } from '@/features/budgets/budget-alerts';
 import { ExpenseList } from '@/features/expenses/expense-list';
-import { addMonths, currentMonth, formatMonth } from '@/lib/format';
+import { addMonths, currentPeriod, formatPeriod } from '@/lib/format';
 import { ActivityTab } from './activity-tab';
 import { BalancesTab } from './balances-tab';
 import { deriveMoney } from './derive';
@@ -62,6 +72,16 @@ export function GroupPage() {
         <h1 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight">
           {group.name}
         </h1>
+        <Button asChild variant="ghost" size="icon" aria-label="Search this group">
+          <Link to={`/search?group=${id}`}>
+            <Search />
+          </Link>
+        </Button>
+        <Button asChild variant="ghost" size="icon" aria-label="Insights for this group">
+          <Link to={`/insights?group=${id}`}>
+            <ChartColumn />
+          </Link>
+        </Button>
         {isOwner ? (
           <Button
             variant="ghost"
@@ -122,13 +142,17 @@ export function GroupPage() {
 }
 
 function ExpensesTab({ groupId, members }: { groupId: string; members: LocalMember[] }) {
-  const [month, setMonth] = useState(currentMonth);
-  const expenses = useExpensesInMonth(groupId, month);
+  const startDay = useMonthStartDay();
+  const [picked, setPicked] = useState<string | null>(null);
+  const now = currentPeriod(startDay);
+  const month = picked ?? now;
+  const expenses = useExpensesInMonth(groupId, month, startDay);
   const categories = useCategoryLookup(groupId);
   const total = expenses?.reduce((sum, e) => sum + e.amountMinor, 0) ?? 0;
 
   return (
     <>
+      <BudgetAlerts groupId={groupId} />
       <Card>
         <CardContent className="space-y-1">
           <div className="flex items-center justify-between">
@@ -136,17 +160,17 @@ function ExpensesTab({ groupId, members }: { groupId: string; members: LocalMemb
               variant="ghost"
               size="icon"
               aria-label="Previous month"
-              onClick={() => setMonth((m) => addMonths(m, -1))}
+              onClick={() => setPicked(addMonths(month, -1))}
             >
               <ChevronLeft />
             </Button>
-            <span className="font-medium">{formatMonth(month)}</span>
+            <span className="font-medium">{formatPeriod(month, startDay)}</span>
             <Button
               variant="ghost"
               size="icon"
               aria-label="Next month"
-              disabled={month >= currentMonth()}
-              onClick={() => setMonth((m) => addMonths(m, 1))}
+              disabled={month >= now}
+              onClick={() => setPicked(addMonths(month, 1))}
             >
               <ChevronRight />
             </Button>
@@ -165,7 +189,7 @@ function ExpensesTab({ groupId, members }: { groupId: string; members: LocalMemb
         <Skeleton className="h-14" />
       ) : expenses.length === 0 ? (
         <p className="text-muted-foreground py-6 text-center text-sm">
-          No expenses in {formatMonth(month)}.
+          No expenses in {formatPeriod(month, startDay)}.
         </p>
       ) : (
         <ExpenseList

@@ -1,5 +1,20 @@
-import type { CategoryRow, ExpenseRow, GroupRow, MemberRow, SettlementRow } from '@budget/shared';
-import type { categories, expenses, groups, settlements } from '../../db/schema';
+import type {
+  BudgetRow,
+  CategoryRow,
+  ExpenseRow,
+  GroupRow,
+  MemberRow,
+  RecurringRow,
+  SettlementRow,
+} from '@budget/shared';
+import type {
+  budgets,
+  categories,
+  expenses,
+  groups,
+  recurringRules,
+  settlements,
+} from '../../db/schema';
 
 // Database rows to the shapes the API returns (and the clients store).
 
@@ -51,6 +66,40 @@ export const toSettlementRow = (r: typeof settlements.$inferSelect): SettlementR
   serverSeq: r.serverSeq,
 });
 
+export const toBudgetRow = (r: typeof budgets.$inferSelect): BudgetRow => ({
+  id: r.id,
+  groupId: r.groupId,
+  categoryId: r.categoryId,
+  amountMinor: r.amountMinor,
+  version: r.version,
+  updatedAt: r.updatedAt,
+  updatedBy: r.updatedBy,
+  deletedAt: r.deletedAt,
+  serverSeq: r.serverSeq,
+});
+
+export const toRecurringRow = (r: typeof recurringRules.$inferSelect): RecurringRow => ({
+  id: r.id,
+  groupId: r.groupId,
+  frequency: r.frequency,
+  startOn: r.startOn,
+  endOn: r.endOn,
+  active: r.active,
+  amountMinor: r.amountMinor,
+  categoryId: r.categoryId,
+  note: r.note,
+  splitType: r.splitType,
+  payers: r.payers,
+  shares: r.shares,
+  createdBy: r.createdBy,
+  lastGeneratedOn: r.lastGeneratedOn,
+  version: r.version,
+  updatedAt: r.updatedAt,
+  updatedBy: r.updatedBy,
+  deletedAt: r.deletedAt,
+  serverSeq: r.serverSeq,
+});
+
 export const toGroupRow = (r: typeof groups.$inferSelect): GroupRow => ({
   id: r.id,
   name: r.name,
@@ -70,6 +119,7 @@ export interface MemberJoinRow {
   serverSeq: number;
   displayName: string;
   avatarUrl: string | null;
+  isPlaceholder: boolean;
 }
 
 export const toMemberRow = (r: MemberJoinRow): MemberRow => ({ ...r });

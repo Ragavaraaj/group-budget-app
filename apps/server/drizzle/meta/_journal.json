@@ -29,6 +29,20 @@
       "when": 1790953126376,
       "tag": "0003_known_sheva_callister",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790957084660,
+      "tag": "0004_budgets_and_recurring",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790959309011,
+      "tag": "0005_placeholder_members",
+      "breakpoints": true
     }
   ]
 }

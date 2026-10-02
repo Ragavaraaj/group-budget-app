@@ -2,6 +2,7 @@ import { type PushResponse, pullQuerySchema, pushRequestSchema, uuidSchema } fro
 import { Hono } from 'hono';
 import type { AppEnv } from '../../app';
 import { requireAuth, session } from '../../middleware/session';
+import { afterResponse, executionOf, LIVE_ID, notifyUsers } from '../live/notify';
 import { pullChanges } from './pull';
 import { pushMutations } from './push';
 
@@ -16,11 +17,15 @@ export function syncRoutes() {
     const parsed = pushRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
 
+    // The device's own connection id, so the live update doesn't wake the device that pushed.
+    const liveId = c.req.header('x-live-id');
+    const exclude = liveId && LIVE_ID.test(liveId) ? liveId : null;
     const results = await pushMutations(
       c.get('db'),
       auth.user.id,
       parsed.data.mutations,
       Date.now(),
+      (recipients) => afterResponse(executionOf(c), notifyUsers(c.env, recipients, exclude)),
     );
     const body: PushResponse = { results };
     return c.json(body);

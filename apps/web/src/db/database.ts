@@ -1,9 +1,11 @@
 import Dexie, { type Table } from 'dexie';
 import type {
+  LocalBudget,
   LocalCategory,
   LocalExpense,
   LocalGroup,
   LocalMember,
+  LocalRecurring,
   LocalSettlement,
   MetaRow,
   OutboxEntry,
@@ -20,6 +22,8 @@ export class BudgetDb extends Dexie {
   categories!: Table<LocalCategory, string>;
   expenses!: Table<LocalExpense, string>;
   settlements!: Table<LocalSettlement, string>;
+  budgets!: Table<LocalBudget, string>;
+  recurring!: Table<LocalRecurring, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<MetaRow, string>;
 
@@ -34,6 +38,17 @@ export class BudgetDb extends Dexie {
       outbox: '++seq, mutationId, entityKey',
       meta: 'key',
     });
+    // Budgets and recurring rules came later. A device that is upgrading may already have pulled
+    // past rows it didn't know how to keep (the code it was running until now drops what it
+    // doesn't know, but still moves the pull cursor on), so the cursor is cleared: the next sync
+    // is one full pull, which brings back those budgets and rules and the member fields
+    // (such as `isPlaceholder`) that it skipped. The data already here is just overwritten.
+    this.version(2)
+      .stores({
+        budgets: 'id, groupId',
+        recurring: 'id, groupId',
+      })
+      .upgrade((tx) => tx.table('meta').delete('cursor'));
   }
 }
 

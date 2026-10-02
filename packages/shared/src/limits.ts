@@ -15,6 +15,26 @@ export const MAX_GROUPS_PER_USER = 30;
  */
 export const MAX_MUTATIONS_PER_PUSH = 10;
 
+/** Budgets (one overall, one per category) and recurring rules a group can hold. */
+export const MAX_BUDGETS_PER_GROUP = 60;
+export const MAX_RECURRING_PER_GROUP = 50;
+
+/**
+ * Expenses the scheduled job creates in one run. A run is one Worker invocation, so the free
+ * plan's 50 D1 queries apply: each occurrence takes four statements, plus one read to find them.
+ * The job runs every hour, so a backlog clears within hours.
+ */
+export const RECURRING_MAX_PER_RUN = 10;
+
+/**
+ * A new or resumed recurring rule never creates expenses for dates further back than this, so
+ * a mistyped start date can't flood a group with old expenses.
+ */
+export const RECURRING_MAX_BACKFILL_DAYS = 93;
+
+/** Rows accepted in one CSV import (it becomes that many expenses to sync). */
+export const MAX_IMPORT_ROWS = 500;
+
 export const PULL_DEFAULT_LIMIT = 100;
 export const PULL_MAX_LIMIT = 200;
 

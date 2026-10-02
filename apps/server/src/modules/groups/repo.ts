@@ -4,13 +4,25 @@ import {
   INVITE_TTL_DAYS,
   MAX_GROUP_MEMBERS,
   MAX_GROUPS_PER_USER,
+  type OpenInvite,
   uuidv7,
 } from '@budget/shared';
-import { and, count, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { reserveSeq, runBatch, seqFor } from '../../db/batch';
 import type { Db } from '../../db/client';
-import { categories, groups, invites, memberships, users } from '../../db/schema';
+import {
+  auditLog,
+  budgets,
+  categories,
+  expenses,
+  groups,
+  invites,
+  memberships,
+  recurringRules,
+  settlements,
+  users,
+} from '../../db/schema';
 import { randomToken, sha256Hex } from '../auth/tokens';
 
 type Statement = BatchItem<'sqlite'>;
@@ -303,6 +315,233 @@ export async function revokeInvites(db: Db, groupId: string, now: number): Promi
     .where(and(eq(invites.groupId, groupId), isNull(invites.revokedAt)))
     .returning({ id: invites.id });
   return revoked.length;
+}
+
+/** The invite links of a group that can still be used, newest first. */
+export async function listOpenInvites(db: Db, groupId: string, now: number): Promise<OpenInvite[]> {
+  return db
+    .select({
+      id: invites.id,
+      createdAt: invites.createdAt,
+      expiresAt: invites.expiresAt,
+      usedCount: invites.usedCount,
+      maxUses: invites.maxUses,
+    })
+    .from(invites)
+    .where(
+      and(
+        eq(invites.groupId, groupId),
+        isNull(invites.revokedAt),
+        gt(invites.expiresAt, now),
+        sql`${invites.usedCount} < ${invites.maxUses}`,
+      ),
+    )
+    .orderBy(desc(invites.createdAt));
+}
+
+/** Ends one invite link. False when it doesn't exist, belongs to another group or was already ended. */
+export async function revokeInvite(
+  db: Db,
+  groupId: string,
+  inviteId: string,
+  now: number,
+): Promise<boolean> {
+  const revoked = await db
+    .update(invites)
+    .set({ revokedAt: now })
+    .where(and(eq(invites.id, inviteId), eq(invites.groupId, groupId), isNull(invites.revokedAt)))
+    .returning({ id: invites.id });
+  return revoked.length > 0;
+}
+
+export type TransferResult =
+  | { ok: true }
+  | { ok: false; error: 'forbidden' | 'not_found' | 'invalid_target' };
+
+/**
+ * The owner hands the group to another active member, who becomes the owner while the old owner
+ * becomes an ordinary member (and can then leave). It is one guarded batch so a group always has
+ * exactly one owner: the old owner is demoted only if the new one is an active member, and the new
+ * one is promoted only if that demotion happened (`changes()`).
+ */
+export async function transferOwnership(
+  db: Db,
+  groupId: string,
+  ownerId: string,
+  targetId: string,
+): Promise<TransferResult> {
+  const actor = await findMembership(db, groupId, ownerId);
+  if (!actor || actor.removedAt !== null || actor.role !== 'owner' || actor.group.isPersonal) {
+    return { ok: false, error: 'forbidden' };
+  }
+  if (targetId === ownerId) return { ok: false, error: 'invalid_target' };
+  const target = await findMembership(db, groupId, targetId);
+  if (!target || target.removedAt !== null) return { ok: false, error: 'not_found' };
+  // Someone who can't sign in can't own a group.
+  const [targetUser] = await db
+    .select({ isPlaceholder: users.isPlaceholder })
+    .from(users)
+    .where(eq(users.id, targetId))
+    .limit(1);
+  if (targetUser?.isPlaceholder) return { ok: false, error: 'invalid_target' };
+
+  const d1 = db.$client;
+  await d1.batch([
+    d1.prepare('UPDATE sync_counter SET value = value + 2 WHERE id = 1'),
+    d1
+      .prepare(
+        `UPDATE memberships SET role = 'member', server_seq = (SELECT value FROM sync_counter WHERE id = 1) - 1
+         WHERE group_id = ?1 AND user_id = ?2 AND role = 'owner' AND removed_at IS NULL
+           AND EXISTS (SELECT 1 FROM memberships WHERE group_id = ?1 AND user_id = ?3 AND removed_at IS NULL)`,
+      )
+      .bind(groupId, ownerId, targetId),
+    d1
+      .prepare(
+        `UPDATE memberships SET role = 'owner', server_seq = (SELECT value FROM sync_counter WHERE id = 1)
+         WHERE group_id = ?1 AND user_id = ?2 AND removed_at IS NULL AND changes() > 0`,
+      )
+      .bind(groupId, targetId),
+  ]);
+
+  const after = await findMembership(db, groupId, targetId);
+  return after?.role === 'owner' && after.removedAt === null
+    ? { ok: true }
+    : { ok: false, error: 'not_found' };
+}
+
+export type PlaceholderResult =
+  | { ok: true; userId: string }
+  | { ok: false; error: 'forbidden' | 'group_full' };
+
+/**
+ * The owner adds someone who doesn't use the app, by name, so they can be part of splits and
+ * balances (a trip with a friend who isn't on Group Budget). It is an ordinary member in every
+ * way the data cares about, except that it has no Google account: its identity can never match a
+ * real sign-in, so nobody can become it. The member list and balances treat it like anyone else.
+ */
+export async function addPlaceholder(
+  db: Db,
+  groupId: string,
+  ownerId: string,
+  name: string,
+  now: number,
+): Promise<PlaceholderResult> {
+  const actor = await findMembership(db, groupId, ownerId);
+  if (!actor || actor.removedAt !== null || actor.role !== 'owner' || actor.group.isPersonal) {
+    return { ok: false, error: 'forbidden' };
+  }
+  if ((await activeMemberCount(db, groupId)) >= MAX_GROUP_MEMBERS) {
+    return { ok: false, error: 'group_full' };
+  }
+
+  const userId = uuidv7(now);
+  await runBatch(db, [
+    reserveSeq(db, 1),
+    db.insert(users).values({
+      id: userId,
+      googleSub: `placeholder:${userId}`,
+      email: `${userId}@placeholder.invalid`,
+      displayName: name,
+      avatarUrl: null,
+      createdAt: new Date(now),
+      lastLoginAt: new Date(now),
+      isPlaceholder: true,
+    }),
+    db.insert(memberships).values({
+      groupId,
+      userId,
+      role: 'member',
+      joinedAt: now,
+      removedAt: null,
+      serverSeq: seqFor(1, 1),
+    }),
+  ]);
+  return { ok: true, userId };
+}
+
+export type RenamePlaceholderResult =
+  | { ok: true }
+  | { ok: false; error: 'forbidden' | 'not_found' };
+
+/** The owner corrects a placeholder's name. Real people rename themselves through Google. */
+export async function renamePlaceholder(
+  db: Db,
+  groupId: string,
+  ownerId: string,
+  userId: string,
+  name: string,
+): Promise<RenamePlaceholderResult> {
+  const actor = await findMembership(db, groupId, ownerId);
+  if (!actor || actor.removedAt !== null || actor.role !== 'owner' || actor.group.isPersonal) {
+    return { ok: false, error: 'forbidden' };
+  }
+  const [target] = await db
+    .select({ isPlaceholder: users.isPlaceholder })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(and(eq(memberships.groupId, groupId), eq(memberships.userId, userId)))
+    .limit(1);
+  if (!target?.isPlaceholder) return { ok: false, error: 'not_found' };
+
+  // Names travel on the membership row, so it is touched too, to reach everyone's devices.
+  await runBatch(db, [
+    reserveSeq(db, 1),
+    db.update(users).set({ displayName: name }).where(eq(users.id, userId)),
+    db
+      .update(memberships)
+      .set({ serverSeq: seqFor(1, 1) })
+      .where(and(eq(memberships.groupId, groupId), eq(memberships.userId, userId))),
+  ]);
+  return { ok: true };
+}
+
+export type DeleteGroupResult = { ok: true } | { ok: false; error: 'forbidden' };
+
+/**
+ * The owner deletes a shared group for everyone. Every member is removed (their devices then
+ * drop the group, as they do for a removal) and the group's records are erased: expenses,
+ * payments, categories, budgets, recurring rules, invite links and the audit trail. The group's
+ * own row and the removed memberships stay, since they are how devices learn it is gone. It is
+ * one atomic batch; only D1 Time Travel can undo it.
+ */
+export async function deleteGroup(
+  db: Db,
+  groupId: string,
+  ownerId: string,
+  now: number,
+): Promise<DeleteGroupResult> {
+  const actor = await findMembership(db, groupId, ownerId);
+  if (!actor || actor.removedAt !== null || actor.role !== 'owner' || actor.group.isPersonal) {
+    return { ok: false, error: 'forbidden' };
+  }
+
+  // Everyone gets their own change number in one statement: the member's rank by user id among
+  // all the group's membership rows (which this statement doesn't change), counted back from the
+  // end of the block reserved here. So the numbers are unique and the pull can page over them.
+  const [{ n: rows = 0 } = { n: 0 }] = await db
+    .select({ n: count() })
+    .from(memberships)
+    .where(eq(memberships.groupId, groupId));
+
+  await runBatch(db, [
+    reserveSeq(db, rows),
+    db
+      .update(memberships)
+      .set({
+        removedAt: now,
+        removedBy: ownerId,
+        serverSeq: sql`(SELECT value FROM sync_counter WHERE id = 1) - ${rows} + (SELECT COUNT(*) FROM memberships AS m2 WHERE m2.group_id = memberships.group_id AND m2.user_id <= memberships.user_id)`,
+      })
+      .where(and(eq(memberships.groupId, groupId), isNull(memberships.removedAt))),
+    db.delete(expenses).where(eq(expenses.groupId, groupId)),
+    db.delete(settlements).where(eq(settlements.groupId, groupId)),
+    db.delete(categories).where(eq(categories.groupId, groupId)),
+    db.delete(budgets).where(eq(budgets.groupId, groupId)),
+    db.delete(recurringRules).where(eq(recurringRules.groupId, groupId)),
+    db.delete(invites).where(eq(invites.groupId, groupId)),
+    db.delete(auditLog).where(eq(auditLog.groupId, groupId)),
+  ]);
+  return { ok: true };
 }
 
 export type RemoveMemberResult =

@@ -274,7 +274,7 @@ describe('pull: rows scanned', () => {
     reset();
     const result = await pullChanges(db, alice.id, { since: cursor, limit: 100 });
     expect(result?.hasMore).toBe(false);
-    expect(reads()).toBeLessThan(60); // a small constant: the membership lookups, no history
+    expect(reads()).toBeLessThan(80); // a small constant: the membership lookups, no history
   });
 
   it('scans in proportion to what changed, not to the size of the history', async () => {
@@ -285,7 +285,9 @@ describe('pull: rows scanned', () => {
     reset();
     const result = await pullChanges(db, alice.id, { since: cursor, limit: 100 });
     expect(result?.expenses).toHaveLength(3);
-    expect(reads()).toBeLessThan(60);
+    // Every synced table repeats the membership lookup, so the constant grows a little with each
+    // new table; what matters is that it stays far below the ~900 rows of history.
+    expect(reads()).toBeLessThan(80);
   });
 
   it('keeps a first page cheap even with a long history spread over several groups', async () => {

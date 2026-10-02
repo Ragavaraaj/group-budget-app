@@ -1,0 +1,92 @@
+name: Backup
+
+# A nightly copy of the production database, kept in a Cloudflare R2 bucket you own. D1's Time
+# Travel already restores the database to any minute of the last 7 days (30 on the paid plan);
+# this is the copy that survives longer than that and doesn't depend on D1 itself.
+#
+# Until a bucket is set up this job reports what is missing and ends green. See README,
+# "Backups to R2". GitHub only runs scheduled workflows from the default branch.
+on:
+  schedule:
+    - cron: '17 21 * * *' # 02:47 India time
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never two at once, and never cancel one halfway: a half-uploaded file is worse than a late one.
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+env:
+  WRANGLER_SEND_METRICS: 'false'
+
+jobs:
+  export:
+    name: Export the database to R2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check backup prerequisites
+        id: ready
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BACKUP_R2_BUCKET: ${{ vars.BACKUP_R2_BUCKET }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=("secret CLOUDFLARE_API_TOKEN")
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=("secret CLOUDFLARE_ACCOUNT_ID")
+          [ -n "$BACKUP_R2_BUCKET" ] || missing+=("repository variable BACKUP_R2_BUCKET (the name of an R2 bucket)")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            list=$(printf '%s, ' "${missing[@]}")
+            msg="Backup skipped. Still needed: ${list%, }. See README, 'Backups to R2'."
+            echo "::warning title=Backup skipped::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.ready.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - if: steps.ready.outputs.ready == 'true'
+        run: npm ci
+
+      # The dump holds everyone's data, so it goes only to the private bucket: it is never printed,
+      # never attached to the run as an artifact, and the runner is discarded afterwards.
+      - name: Export the database
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/server
+        run: |
+          set -euo pipefail
+          npx wrangler d1 export DB --remote --output "$RUNNER_TEMP/backup.sql"
+          # A real dump has the schema in it; refuse to upload an empty or truncated file.
+          test -s "$RUNNER_TEMP/backup.sql"
+          grep -q 'CREATE TABLE' "$RUNNER_TEMP/backup.sql"
+          gzip -9 "$RUNNER_TEMP/backup.sql"
+          echo "Dump size: $(du -h "$RUNNER_TEMP/backup.sql.gz" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to R2
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BACKUP_R2_BUCKET: ${{ vars.BACKUP_R2_BUCKET }}
+        working-directory: apps/server
+        run: |
+          set -euo pipefail
+          key="backups/$(date -u +%Y/%m)/group-budget-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+          npx wrangler r2 object put "$BACKUP_R2_BUCKET/$key" \
+            --file "$RUNNER_TEMP/backup.sql.gz" \
+            --content-type application/gzip \
+            --remote
+          echo "Uploaded: $key" >> "$GITHUB_STEP_SUMMARY"

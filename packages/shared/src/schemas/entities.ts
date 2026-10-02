@@ -1,13 +1,15 @@
 import { z } from 'zod';
+import type { Allocation } from '../balances';
 import { isUuid } from '../ids';
 import { CATEGORY_NAME_MAX, MAX_GROUP_MEMBERS, NOTE_MAX } from '../limits';
 import { MAX_PAISE } from '../money';
+import { RECURRENCES } from '../recurring';
 import { SPLIT_TYPES } from '../splits';
 import { localDateSchema, paiseSchema } from './primitives';
 
 export const uuidSchema = z.string().refine(isUuid, 'Invalid id');
 
-export const ENTITY_NAMES = ['category', 'expense', 'settlement'] as const;
+export const ENTITY_NAMES = ['category', 'expense', 'settlement', 'budget', 'recurring'] as const;
 export type EntityName = (typeof ENTITY_NAMES)[number];
 
 /** Zero is allowed for a person who is in a split but owes nothing. */
@@ -49,23 +51,62 @@ const sum = (items: readonly { amountMinor: number }[]) =>
 const hasDuplicates = (items: readonly { userId: string }[]) =>
   new Set(items.map((item) => item.userId)).size !== items.length;
 
-/** What a client may send for an expense. The paise must add up on both sides. */
-export const expenseDataSchema = expenseBaseSchema.superRefine((expense, ctx) => {
-  if (sum(expense.payers) !== expense.amountMinor) {
+/** The paise must add up on both sides and nobody may be listed twice. */
+function checkSplit(
+  split: {
+    amountMinor: number;
+    payers: readonly Allocation[];
+    shares: readonly Allocation[];
+  },
+  ctx: z.RefinementCtx,
+) {
+  if (sum(split.payers) !== split.amountMinor) {
     ctx.addIssue({
       code: 'custom',
       path: ['payers'],
       message: 'Payments must add up to the total',
     });
   }
-  if (sum(expense.shares) !== expense.amountMinor) {
+  if (sum(split.shares) !== split.amountMinor) {
     ctx.addIssue({ code: 'custom', path: ['shares'], message: 'Shares must add up to the total' });
   }
-  if (hasDuplicates(expense.payers)) {
+  if (hasDuplicates(split.payers)) {
     ctx.addIssue({ code: 'custom', path: ['payers'], message: 'A person is listed twice' });
   }
-  if (hasDuplicates(expense.shares)) {
+  if (hasDuplicates(split.shares)) {
     ctx.addIssue({ code: 'custom', path: ['shares'], message: 'A person is listed twice' });
+  }
+}
+
+/** What a client may send for an expense. The paise must add up on both sides. */
+export const expenseDataSchema = expenseBaseSchema.superRefine(checkSplit);
+
+/** A monthly spending limit: one for the whole group (`categoryId: null`) or one per category. */
+export const budgetDataSchema = z.object({
+  id: uuidSchema,
+  groupId: uuidSchema,
+  categoryId: uuidSchema.nullable(),
+  amountMinor: paiseSchema,
+});
+
+/**
+ * An expense that repeats. It carries the same split an expense does, plus when to repeat.
+ * Which occurrences have been created already is the server's to track, not the client's.
+ */
+const recurringBaseSchema = expenseBaseSchema.omit({ occurredOn: true }).extend({
+  frequency: z.enum(RECURRENCES),
+  /** The first occurrence; it also fixes the weekday, day of the month or day of the year. */
+  startOn: localDateSchema,
+  /** No occurrences after this date; `null` repeats for ever. */
+  endOn: localDateSchema.nullable(),
+  /** Paused rules create nothing. */
+  active: z.boolean(),
+});
+
+export const recurringDataSchema = recurringBaseSchema.superRefine((rule, ctx) => {
+  checkSplit(rule, ctx);
+  if (rule.endOn !== null && rule.endOn < rule.startOn) {
+    ctx.addIssue({ code: 'custom', path: ['endOn'], message: 'Cannot end before it starts' });
   }
 });
 
@@ -87,6 +128,8 @@ export const settlementDataSchema = z
 export type CategoryData = z.infer<typeof categoryDataSchema>;
 export type ExpenseData = z.infer<typeof expenseDataSchema>;
 export type SettlementData = z.infer<typeof settlementDataSchema>;
+export type BudgetData = z.infer<typeof budgetDataSchema>;
+export type RecurringData = z.infer<typeof recurringDataSchema>;
 
 // Rows as the server returns them: the data above plus sync metadata (and who created it).
 const syncMetaSchema = z.object({
@@ -116,6 +159,14 @@ export const settlementRowSchema = z.object({
   ...syncMetaSchema.shape,
 });
 
+export const budgetRowSchema = budgetDataSchema.extend(syncMetaSchema.shape);
+export const recurringRowSchema = recurringBaseSchema.extend({
+  createdBy: uuidSchema,
+  /** The last occurrence the server turned into an expense. */
+  lastGeneratedOn: localDateSchema.nullable(),
+  ...syncMetaSchema.shape,
+});
+
 export const groupRowSchema = z.object({
   id: uuidSchema,
   name: z.string(),
@@ -135,11 +186,15 @@ export const memberRowSchema = z.object({
   removedAt: z.number().int().nullable(),
   displayName: z.string(),
   avatarUrl: z.string().nullable(),
+  /** Someone the owner added by name who doesn't use the app (they can't sign in). */
+  isPlaceholder: z.boolean().default(false),
   serverSeq: z.number().int().min(1),
 });
 
 export type CategoryRow = z.infer<typeof categoryRowSchema>;
 export type ExpenseRow = z.infer<typeof expenseRowSchema>;
 export type SettlementRow = z.infer<typeof settlementRowSchema>;
+export type BudgetRow = z.infer<typeof budgetRowSchema>;
+export type RecurringRow = z.infer<typeof recurringRowSchema>;
 export type GroupRow = z.infer<typeof groupRowSchema>;
 export type MemberRow = z.infer<typeof memberRowSchema>;

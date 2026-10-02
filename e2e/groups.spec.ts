@@ -1,13 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
-import { devSignIn, newPerson, uniqueEmail } from './helpers';
-
-async function createGroup(page: Page, name: string) {
-  await page.goto('/groups');
-  await page.getByRole('button', { name: 'New' }).click();
-  await page.getByLabel('Group name').fill(name);
-  await page.getByRole('button', { name: 'Create group' }).click();
-  await expect(page.getByRole('heading', { name })).toBeVisible();
-}
+import { createGroup, devSignIn, newPerson, uniqueEmail, waitForSynced } from './helpers';
 
 async function inviteLink(page: Page): Promise<string> {
   await page.getByRole('tab', { name: 'Members' }).click();
@@ -233,7 +225,7 @@ test('the owner can stop the invite links that are out there', async ({ page, br
   await createGroup(page, 'Private');
   const link = await inviteLink(page);
 
-  await page.getByRole('button', { name: 'Stop links' }).click();
+  await page.getByRole('button', { name: 'Stop all links' }).click();
   await expect(page.getByText('Invite links stopped')).toBeVisible();
 
   const stranger = await newPerson(browser, uniqueEmail('late'), 'Late');
@@ -274,4 +266,143 @@ test('leaving a group is held back while changes in it have not been sent', asyn
   await bob.page.getByRole('alertdialog').getByRole('button', { name: 'Leave' }).click();
   await expect(bob.page).toHaveURL(/\/groups$/);
   await bob.context.close();
+});
+
+test('the owner can stop one invite link and leave the others working', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Two links');
+  const first = await inviteLink(page);
+  const second = await inviteLink(page);
+  expect(second).not.toBe(first);
+
+  await page.getByRole('tab', { name: 'Members' }).click();
+  const open = page.getByTestId('open-links');
+  await expect(open).toContainText('Open invite links (2)');
+  await open
+    .getByRole('button', { name: /Stop the link/ })
+    .first()
+    .click();
+  await expect(page.getByText('That link has been stopped.')).toBeVisible();
+  await expect(open).toContainText('Open invite links (1)');
+
+  // Exactly one of the two links still lets someone in.
+  const results: boolean[] = [];
+  for (const link of [first, second]) {
+    const person = await newPerson(browser, uniqueEmail('guest'), 'Guest');
+    await person.page.goto(new URL(link).pathname);
+    // The page says either that the person was invited or that the link has run out.
+    await expect(person.page.getByText(/invited you to|expired or been used up/)).toBeVisible();
+    results.push(await person.page.getByRole('button', { name: 'Join group' }).isVisible());
+    await person.context.close();
+  }
+  expect(results.filter(Boolean)).toHaveLength(1);
+});
+
+test('the owner hands the group over, and can then leave it', async ({ page, browser }) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Handover');
+  const link = await inviteLink(page);
+  const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
+  await join(bob.page, link);
+  await expect(bob.page.getByRole('heading', { name: 'Handover' })).toBeVisible();
+
+  await page.reload(); // Alice's device learns that Bob joined
+  await openGroupTab(page, 'Members');
+  // The owner can't simply leave.
+  await expect(page.getByRole('button', { name: 'Leave group' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Make Bob the owner' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Make owner' }).click();
+  await expect(page.getByText('Bob is now the owner')).toBeVisible();
+
+  // Alice is an ordinary member now: she can leave, and has no owner buttons.
+  await expect(page.getByRole('button', { name: 'Leave group' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Invite people' })).toHaveCount(0);
+
+  // Bob sees himself as owner and can invite.
+  await bob.page.reload();
+  await openGroupTab(bob.page, 'Members');
+  await expect(bob.page.getByRole('button', { name: 'Invite people' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Leave group' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Leave' }).click();
+  await expect(page.getByText('You left “Handover”')).toBeVisible();
+  await bob.context.close();
+});
+
+test('deleting a group removes it, and everything in it, for everyone', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Doomed');
+  const link = await inviteLink(page);
+  const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
+  await join(bob.page, link);
+  await expect(bob.page.getByRole('heading', { name: 'Doomed' })).toBeVisible();
+
+  await openGroupTab(page, 'Expenses');
+  await addGroupExpense(page, '500', 'Snacks');
+  await save(page);
+  await waitForSynced(page);
+
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Delete group' }).click();
+  const dialog = page.getByRole('alertdialog');
+  // The name has to be typed: the button stays disabled until it matches.
+  await expect(dialog.getByRole('button', { name: 'Delete group' })).toBeDisabled();
+  await dialog.getByLabel('Type the group’s name to confirm').fill('Doomed');
+  await dialog.getByRole('button', { name: 'Delete group' }).click();
+  await expect(page.getByText('“Doomed” was deleted')).toBeVisible();
+  await expect(page).toHaveURL(/\/groups$/);
+  await expect(page.getByText('No groups yet')).toBeVisible();
+
+  // Bob's device drops it too.
+  await bob.page.goto('/groups');
+  await expect(bob.page.getByText('No groups yet')).toBeVisible({ timeout: 15_000 });
+  await bob.context.close();
+});
+
+test('someone without the app can be added by name and takes part in the balances', async ({
+  page,
+}) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Trip with Dad');
+
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Add someone without the app' }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill('Dad');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText('Dad was added')).toBeVisible();
+  // (Not just any list item: the toast is one too.)
+  const dad = page.getByTestId('members-list').getByRole('listitem').filter({ hasText: 'Dad' });
+  await expect(dad).toContainText('No app');
+  // They can be renamed, but can't be made the owner.
+  await expect(page.getByRole('button', { name: 'Make Dad the owner' })).toHaveCount(0);
+  await page.getByRole('button', { name: /Change Dad.s name/ }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill('Papa');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Name changed')).toBeVisible();
+  await expect(
+    page.getByTestId('members-list').getByRole('listitem').filter({ hasText: 'Papa' }),
+  ).toBeVisible();
+
+  // Alice pays ₹900, split equally with Papa: he owes ₹450.
+  await openGroupTab(page, 'Expenses');
+  await addGroupExpense(page, '900', 'Hotel');
+  await save(page);
+  await openGroupTab(page, 'Balances');
+  await expect(page.getByTestId('my-balance')).toHaveText('You’re owed ₹450');
+  await expect(page.getByTestId('balance-Papa')).toHaveText('owes ₹450');
+
+  // Alice records that Papa paid her back in cash.
+  await page.getByRole('button', { name: 'Record', exact: true }).click();
+  await page.getByRole('button', { name: 'Record payment' }).click();
+  await expect(page.getByTestId('my-balance')).toHaveText('All settled up');
 });

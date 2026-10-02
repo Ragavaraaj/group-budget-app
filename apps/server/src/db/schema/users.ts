@@ -10,6 +10,8 @@ export const users = sqliteTable('users', {
   avatarUrl: text('avatar_url'),
   createdAt: timestamp('created_at').notNull(),
   lastLoginAt: timestamp('last_login_at').notNull(),
+  /** Added by a group owner by name only: has no Google account and can never sign in. */
+  isPlaceholder: integer('is_placeholder', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const sessions = sqliteTable(

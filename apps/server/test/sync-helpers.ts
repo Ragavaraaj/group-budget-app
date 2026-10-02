@@ -103,6 +103,8 @@ export async function pullAll(person: Person, since = 0, limit = 100, groupId?: 
     categories: [],
     expenses: [],
     settlements: [],
+    budgets: [],
+    recurring: [],
   };
   let pages = 0;
   for (;;) {
@@ -114,6 +116,8 @@ export async function pullAll(person: Person, since = 0, limit = 100, groupId?: 
     merged.categories.push(...body.categories);
     merged.expenses.push(...body.expenses);
     merged.settlements.push(...body.settlements);
+    merged.budgets.push(...body.budgets);
+    merged.recurring.push(...body.recurring);
     merged.cursor = body.cursor;
     if (!body.hasMore) break;
     if (pages > 500) throw new Error('pull did not terminate');
