@@ -3,6 +3,7 @@ import { ArrowRight, HandCoins, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useDb, useMe } from '@/auth/sync-context';
+import { PersonAvatar } from '@/components/person-avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { personName } from '@/db/hooks';
@@ -42,14 +43,14 @@ export function BalancesTab({ groupId, members, money, settlements }: BalancesTa
   return (
     <div className="space-y-5">
       <Card>
-        <CardContent className="space-y-1 text-center">
+        <CardContent className="space-y-1 py-1 text-center">
           <p className="text-muted-foreground text-sm">Your balance</p>
           <p
             data-testid="my-balance"
             className={cn(
-              'text-3xl font-semibold tabular-nums',
-              mine > 0 && 'text-emerald-600 dark:text-emerald-400',
-              mine < 0 && 'text-destructive',
+              'text-3xl font-bold tracking-tight tabular-nums',
+              mine > 0 && 'text-positive',
+              mine < 0 && 'text-negative',
             )}
           >
             {mine === 0
@@ -70,15 +71,16 @@ export function BalancesTab({ groupId, members, money, settlements }: BalancesTa
             {listed.map((member) => {
               const balance = money.balances.get(member.userId) ?? 0;
               return (
-                <li key={member.userId} className="flex items-center justify-between py-2.5">
-                  <span className="truncate">
+                <li key={member.userId} className="flex items-center gap-3 py-2.5">
+                  <PersonAvatar id={member.userId} name={member.displayName} />
+                  <span className="min-w-0 flex-1 truncate font-medium">
                     {member.userId === user.id ? 'You' : personName(members, member.userId)}
                   </span>
                   <span
                     className={cn(
                       'text-sm font-medium tabular-nums',
-                      balance > 0 && 'text-emerald-600 dark:text-emerald-400',
-                      balance < 0 && 'text-destructive',
+                      balance > 0 && 'text-positive',
+                      balance < 0 && 'text-negative',
                       balance === 0 && 'text-muted-foreground',
                     )}
                     data-testid={`balance-${member.displayName}`}
@@ -112,7 +114,7 @@ export function BalancesTab({ groupId, members, money, settlements }: BalancesTa
                 {money.transfers.map((t) => (
                   <li
                     key={`${t.from}-${t.to}`}
-                    className="flex items-center gap-2 rounded-lg border p-3"
+                    className="bg-muted/60 flex items-center gap-2 rounded-2xl p-3"
                     data-testid="suggested-transfer"
                   >
                     <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">

@@ -26,10 +26,16 @@ export function BudgetAlerts({ groupId }: { groupId: string }) {
   if (warnings.length === 0) return null;
 
   return (
-    <Card className="border-amber-500/50" data-testid="budget-alerts">
+    <Card
+      className="bg-amber-50 py-3 text-amber-950 ring-amber-200 dark:bg-amber-400/10 dark:text-amber-100 dark:ring-amber-400/30"
+      data-testid="budget-alerts"
+    >
       <CardContent>
         <Link to={`/budgets?group=${groupId}`} className="flex gap-3">
-          <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-500" aria-hidden="true" />
+          <TriangleAlert
+            className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden="true"
+          />
           <ul className="min-w-0 flex-1 space-y-0.5 text-sm">
             {warnings.map((s) => {
               const name =

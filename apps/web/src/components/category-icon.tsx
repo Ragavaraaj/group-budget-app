@@ -71,7 +71,7 @@ export function CategoryIcon({ icon, color = '#64748b', className }: CategoryIco
   const Icon = (icon && CATEGORY_ICONS[icon]) || Tag;
   return (
     <span
-      className={cn('grid size-10 shrink-0 place-items-center rounded-full', className)}
+      className={cn('grid size-10 shrink-0 place-items-center rounded-2xl', className)}
       style={{ backgroundColor: `${color}26`, color }}
       aria-hidden="true"
     >

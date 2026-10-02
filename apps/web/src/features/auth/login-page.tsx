@@ -1,4 +1,4 @@
-import { Loader2, LogIn, WifiOff } from 'lucide-react';
+import { Loader2, LogIn, ReceiptText, WifiOff } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useLocation, useSearchParams } from 'react-router';
 import { cancelAttempt, googleStartUrl, hasPendingAttempt, isStandalone } from '@/auth/attempt';
@@ -131,17 +131,33 @@ export function LoginPage() {
   }
 
   return (
-    <div className="mx-auto grid min-h-dvh max-w-sm place-items-center px-4 py-10">
-      <Card className="w-full">
-        <CardContent className="space-y-6">
-          <div className="space-y-1 text-center">
-            <h1 className="text-2xl font-semibold tracking-tight">Group Budget</h1>
-            <p className="text-muted-foreground text-sm">
-              Track your spending and split costs with friends, even offline.
-            </p>
-          </div>
+    <div className="mx-auto flex min-h-dvh max-w-sm flex-col px-5 pt-safe pb-8">
+      <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+        <div className="bg-hero grid size-20 place-items-center rounded-[1.75rem] shadow-lg shadow-black/20">
+          <ReceiptText
+            className="text-hero-foreground size-10"
+            strokeWidth={1.8}
+            aria-hidden="true"
+          />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">Group Budget</h1>
+          <p className="text-muted-foreground mx-auto max-w-72 text-base leading-snug">
+            Track your spending and split costs with friends, even offline.
+          </p>
+        </div>
+        <ul className="flex flex-wrap justify-center gap-2 text-sm font-semibold">
+          {['Works offline', 'Split fairly', 'Private to your group'].map((perk) => (
+            <li key={perk} className="bg-accent text-accent-foreground rounded-full px-3.5 py-1.5">
+              {perk}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <Card className="rounded-3xl">
+        <CardContent className="space-y-4">
           {state.status === 'signed_in' && state.sessionExpired ? (
-            <p className="bg-muted rounded-md p-3 text-sm">
+            <p className="bg-muted rounded-xl p-3 text-sm">
               Your session ended. Sign in again to keep syncing. Your changes on this device are
               safe.
             </p>

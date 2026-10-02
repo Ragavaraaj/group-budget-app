@@ -34,11 +34,11 @@ export function ExpenseList({
     <div className="space-y-5">
       {days.map(({ date, items }) => (
         <section key={date} aria-label={formatDay(date)} className="space-y-1">
-          <h3 className="text-muted-foreground flex justify-between px-1 text-xs font-medium uppercase tracking-wide">
+          <h3 className="text-muted-foreground flex justify-between px-1 text-xs font-semibold uppercase tracking-wider">
             <span>{formatDay(date)}</span>
             <span>{formatPaise(items.reduce((sum, e) => sum + e.amountMinor, 0))}</span>
           </h3>
-          <ul className="divide-y rounded-lg border">
+          <ul className="bg-card divide-y overflow-hidden rounded-2xl shadow-xs">
             {items.map((expense) => {
               const category = expense.categoryId ? categories.get(expense.categoryId) : undefined;
               const title = expense.note || category?.name || 'Expense';
@@ -46,11 +46,11 @@ export function ExpenseList({
                 <li key={expense.id}>
                   <Link
                     to={hrefFor(expense)}
-                    className="hover:bg-accent flex items-center gap-3 p-3 transition-colors"
+                    className="hover:bg-accent/60 flex min-h-14 items-center gap-3 px-3.5 py-3 transition-colors"
                   >
                     <CategoryIcon icon={category?.icon} color={category?.color} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{title}</span>
+                      <span className="block truncate font-semibold">{title}</span>
                       <span className="text-muted-foreground block truncate text-xs">
                         {[
                           expense.note && category ? category.name : null,
@@ -63,7 +63,7 @@ export function ExpenseList({
                           .join(' · ')}
                       </span>
                     </span>
-                    <span className="font-medium tabular-nums">
+                    <span className="font-semibold tabular-nums">
                       {formatPaise(expense.amountMinor)}
                     </span>
                   </Link>

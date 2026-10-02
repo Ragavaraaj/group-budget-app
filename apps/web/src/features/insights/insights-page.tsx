@@ -13,10 +13,11 @@ import {
   toLocalDate,
   trend,
 } from '@budget/shared';
-import { ChevronLeft, ChevronRight, PiggyBank } from 'lucide-react';
+import { PiggyBank } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useMe } from '@/auth/sync-context';
+import { HeroCard, HeroStepper } from '@/components/hero-card';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -201,72 +202,60 @@ export function InsightsPage() {
         </ToggleGroup>
       ) : null}
 
-      <Card>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Previous period"
-              onClick={() => step(-1)}
-            >
-              <ChevronLeft />
-            </Button>
-            <span className="font-medium" data-testid="insights-period">
-              {label}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Next period"
-              disabled={atPresent}
-              onClick={() => step(1)}
-            >
-              <ChevronRight />
-            </Button>
-          </div>
+      <HeroCard>
+        <HeroStepper
+          label={label}
+          labelTestId="insights-period"
+          previousLabel="Previous period"
+          nextLabel="Next period"
+          nextDisabled={atPresent}
+          onPrevious={() => step(-1)}
+          onNext={() => step(1)}
+        />
 
-          <div className="text-center">
-            <p className="text-3xl font-semibold tabular-nums" data-testid="insights-total">
-              <span className="sr-only">Total: </span>
-              {formatPaise(summary.totalMinor)}
-            </p>
-            <p className="text-muted-foreground text-xs">
-              {summary.count} expense{summary.count === 1 ? '' : 's'}
-              {measure === 'mine' ? ' · your share' : ' · whole group'}
-              {running ? ' · so far' : ''}
-            </p>
-          </div>
+        <div className="text-center">
+          <p
+            className="text-4xl font-bold tracking-tight tabular-nums"
+            data-testid="insights-total"
+          >
+            <span className="sr-only">Total: </span>
+            {formatPaise(summary.totalMinor)}
+          </p>
+          <p className="text-hero-foreground/80 text-sm">
+            {summary.count} expense{summary.count === 1 ? '' : 's'}
+            {measure === 'mine' ? ' · your share' : ' · whole group'}
+            {running ? ' · so far' : ''}
+          </p>
+        </div>
 
-          <dl className="grid grid-cols-2 gap-3 border-t pt-3 text-center text-sm">
-            <div>
-              <dt className="text-muted-foreground text-xs">
-                {view === 'month' ? 'Per day' : 'Per month'}
-              </dt>
-              <dd className="font-medium tabular-nums" data-testid="insights-average">
-                {formatPaise(
-                  view === 'month'
-                    ? dailyAverage(summary.totalMinor, days)
-                    : dailyAverage(summary.totalMinor, Math.max(1, Math.round(days / 30.4))),
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground text-xs">Before: {previousLabel}</dt>
-              <dd className="font-medium tabular-nums" data-testid="insights-previous">
-                {formatPaise(report.previous)}
-              </dd>
-            </div>
-          </dl>
-          {report.previous > 0 || summary.totalMinor > 0 ? (
-            <p className="text-muted-foreground text-center text-xs" data-testid="insights-change">
-              {change.deltaMinor === 0
-                ? 'The same as before.'
-                : `${formatPaise(Math.abs(change.deltaMinor))} ${change.deltaMinor > 0 ? 'more' : 'less'} than ${previousLabel}${running ? ' (so far this period)' : ''}.`}
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
+        <dl className="grid grid-cols-2 gap-2">
+          <div className="space-y-0.5 rounded-2xl bg-white/10 px-3 py-2.5">
+            <dt className="text-hero-foreground/80 text-xs">
+              {view === 'month' ? 'Per day' : 'Per month'}
+            </dt>
+            <dd className="text-lg font-semibold tabular-nums" data-testid="insights-average">
+              {formatPaise(
+                view === 'month'
+                  ? dailyAverage(summary.totalMinor, days)
+                  : dailyAverage(summary.totalMinor, Math.max(1, Math.round(days / 30.4))),
+              )}
+            </dd>
+          </div>
+          <div className="space-y-0.5 rounded-2xl bg-white/10 px-3 py-2.5">
+            <dt className="text-hero-foreground/80 text-xs">Before: {previousLabel}</dt>
+            <dd className="text-lg font-semibold tabular-nums" data-testid="insights-previous">
+              {formatPaise(report.previous)}
+            </dd>
+          </div>
+        </dl>
+        {report.previous > 0 || summary.totalMinor > 0 ? (
+          <p className="text-hero-foreground/90 text-center text-sm" data-testid="insights-change">
+            {change.deltaMinor === 0
+              ? 'The same as before.'
+              : `${formatPaise(Math.abs(change.deltaMinor))} ${change.deltaMinor > 0 ? 'more' : 'less'} than ${previousLabel}${running ? ' (so far this period)' : ''}.`}
+          </p>
+        ) : null}
+      </HeroCard>
 
       {summary.count === 0 ? (
         <Card>

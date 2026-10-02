@@ -1,3 +1,4 @@
+import { ReceiptText } from 'lucide-react';
 import { Navigate, Outlet, useLocation } from 'react-router';
 import { useAuth } from '@/auth/auth-context';
 import { SignedInProvider } from '@/auth/sync-context';
@@ -28,7 +29,11 @@ function AppShell() {
       <main className="flex-1 pt-safe">
         {/* Bottom padding keeps the last item clear of the fixed tab bar. */}
         <div className="space-y-4 px-4 pt-3 pb-28">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <span className="text-primary flex items-center gap-1.5 text-sm font-bold tracking-tight">
+              <ReceiptText className="size-4" aria-hidden="true" />
+              Group Budget
+            </span>
             <SyncStatusChip />
           </div>
           <SessionExpiredBanner />
