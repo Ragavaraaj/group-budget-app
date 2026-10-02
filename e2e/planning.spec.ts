@@ -140,7 +140,7 @@ test.describe('recurring expenses', () => {
     await page.goto('/settings/recurring/new');
     await page.getByLabel('Amount').fill('250');
     await page.getByLabel('What is it?').fill('Weekly help');
-    await page.getByRole('button', { name: 'Weekly' }).click();
+    await page.getByRole('radio', { name: 'Weekly' }).click();
     await page.getByLabel('First on').fill(daysAgo(14));
     await expect(page.getByText(/already passed are added too/)).toBeVisible();
 
