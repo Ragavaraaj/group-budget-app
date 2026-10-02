@@ -367,3 +367,42 @@ test('deleting a group removes it, and everything in it, for everyone', async ({
   await expect(bob.page.getByText('No groups yet')).toBeVisible({ timeout: 15_000 });
   await bob.context.close();
 });
+
+test('someone without the app can be added by name and takes part in the balances', async ({
+  page,
+}) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Trip with Dad');
+
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Add someone without the app' }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill('Dad');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText('Dad was added')).toBeVisible();
+  // (Not just any list item: the toast is one too.)
+  const dad = page.getByTestId('members-list').getByRole('listitem').filter({ hasText: 'Dad' });
+  await expect(dad).toContainText('No app');
+  // They can be renamed, but can't be made the owner.
+  await expect(page.getByRole('button', { name: 'Make Dad the owner' })).toHaveCount(0);
+  await page.getByRole('button', { name: /Change Dad.s name/ }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill('Papa');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Name changed')).toBeVisible();
+  await expect(
+    page.getByTestId('members-list').getByRole('listitem').filter({ hasText: 'Papa' }),
+  ).toBeVisible();
+
+  // Alice pays ₹900, split equally with Papa: he owes ₹450.
+  await openGroupTab(page, 'Expenses');
+  await addGroupExpense(page, '900', 'Hotel');
+  await save(page);
+  await openGroupTab(page, 'Balances');
+  await expect(page.getByTestId('my-balance')).toHaveText('You’re owed ₹450');
+  await expect(page.getByTestId('balance-Papa')).toHaveText('owes ₹450');
+
+  // Alice records that Papa paid her back in cash.
+  await page.getByRole('button', { name: 'Record', exact: true }).click();
+  await page.getByRole('button', { name: 'Record payment' }).click();
+  await expect(page.getByTestId('my-balance')).toHaveText('All settled up');
+});

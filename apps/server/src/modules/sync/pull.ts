@@ -73,6 +73,7 @@ export async function pullChanges(
     serverSeq: memberships.serverSeq,
     displayName: users.displayName,
     avatarUrl: users.avatarUrl,
+    isPlaceholder: users.isPlaceholder,
   };
 
   const [

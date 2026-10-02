@@ -1,4 +1,14 @@
-import { Crown, LinkIcon, LogOut, Trash2, UserCheck, UserMinus, UserPlus } from 'lucide-react';
+import {
+  Crown,
+  LinkIcon,
+  LogOut,
+  Pencil,
+  Trash2,
+  UserCheck,
+  UserMinus,
+  UserPlus,
+  UserRoundPlus,
+} from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -25,6 +35,7 @@ import { orderMembers } from './derive';
 import { explainGroupError } from './group-dialogs';
 import { InviteDialog } from './invite-dialog';
 import { OpenLinks } from './open-links';
+import { PlaceholderDialog } from './placeholder-dialog';
 
 interface MembersTabProps {
   groupId: string;
@@ -45,6 +56,7 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
   const [pending, setPending] = useState<Pending>(null);
   const [linksVersion, setLinksVersion] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [placeholder, setPlaceholder] = useState<LocalMember | 'new' | null>(null);
 
   const ordered = orderMembers(members, user.id);
   const active = ordered.filter((m) => m.removedAt === null);
@@ -119,9 +131,15 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
         </div>
       ) : null}
 
+      {isOwner ? (
+        <Button variant="outline" className="w-full" onClick={() => setPlaceholder('new')}>
+          <UserRoundPlus /> Add someone without the app
+        </Button>
+      ) : null}
+
       {isOwner ? <OpenLinks groupId={groupId} refreshKey={linksVersion} /> : null}
 
-      <ul className="divide-y rounded-lg border">
+      <ul className="divide-y rounded-lg border" data-testid="members-list">
         {active.map((member) => (
           <li key={member.userId} className="flex items-center gap-3 p-3">
             <Avatar>
@@ -141,16 +159,29 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
                 <Crown /> Owner
               </Badge>
             ) : null}
+            {member.isPlaceholder ? <Badge variant="outline">No app</Badge> : null}
+            {isOwner && member.isPlaceholder ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Change ${member.displayName}’s name`}
+                onClick={() => setPlaceholder(member)}
+              >
+                <Pencil />
+              </Button>
+            ) : null}
             {isOwner && member.userId !== user.id ? (
               <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Make ${member.displayName} the owner`}
-                  onClick={() => setPending({ kind: 'transfer', member })}
-                >
-                  <Crown />
-                </Button>
+                {member.isPlaceholder ? null : (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Make ${member.displayName} the owner`}
+                    onClick={() => setPending({ kind: 'transfer', member })}
+                  >
+                    <Crown />
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -220,6 +251,13 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
         }}
         groupId={groupId}
         groupName={groupName}
+      />
+
+      <PlaceholderDialog
+        open={placeholder !== null}
+        onOpenChange={(open) => !open && setPlaceholder(null)}
+        groupId={groupId}
+        existing={placeholder && placeholder !== 'new' ? placeholder : undefined}
       />
 
       <DeleteGroupDialog

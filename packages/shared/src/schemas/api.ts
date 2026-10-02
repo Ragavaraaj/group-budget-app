@@ -65,6 +65,12 @@ export type OpenInvite = z.infer<typeof openInviteSchema>;
 export const listInvitesResponseSchema = z.object({ invites: z.array(openInviteSchema) });
 export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;
 
+/** Adding or renaming someone who doesn't use the app. */
+export const placeholderNameRequestSchema = z.object({
+  name: z.string().trim().min(1).max(DISPLAY_NAME_MAX),
+});
+export const addPlaceholderResponseSchema = z.object({ userId: uuidSchema });
+
 export const transferOwnershipRequestSchema = z.object({ userId: uuidSchema });
 
 export const acceptInviteRequestSchema = z.object({ token: z.string().min(16).max(128) });

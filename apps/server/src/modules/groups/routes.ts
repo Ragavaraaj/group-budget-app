@@ -3,6 +3,7 @@ import {
   type CreateInviteResponse,
   createGroupRequestSchema,
   type ListInvitesResponse,
+  placeholderNameRequestSchema,
   renameGroupRequestSchema,
   transferOwnershipRequestSchema,
   uuidSchema,
@@ -13,6 +14,7 @@ import { requireAuth, session } from '../../middleware/session';
 import { activeMemberIds, afterResponse, executionOf, notifyUsers } from '../live/notify';
 import {
   acceptInvite,
+  addPlaceholder,
   createGroup,
   createInvite,
   deleteGroup,
@@ -22,6 +24,7 @@ import {
   reinstateMember,
   removeMember,
   renameGroup,
+  renamePlaceholder,
   revokeInvite,
   revokeInvites,
   transferOwnership,
@@ -141,6 +144,49 @@ export function groupRoutes() {
     }
     const revoked = await revokeInvites(c.get('db'), groupId.data, Date.now());
     return c.json({ revoked });
+  });
+
+  groups.post('/:groupId/placeholders', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    const parsed = placeholderNameRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!groupId.success || !parsed.success) return c.json({ error: 'invalid_request' }, 400);
+
+    const result = await addPlaceholder(
+      c.get('db'),
+      groupId.data,
+      auth.user.id,
+      parsed.data.name,
+      Date.now(),
+    );
+    if (!result.ok)
+      return c.json({ error: result.error }, result.error === 'forbidden' ? 403 : 409);
+    tellMembers(c, groupId.data);
+    return c.json({ userId: result.userId }, 201);
+  });
+
+  groups.patch('/:groupId/placeholders/:userId', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    const userId = uuidSchema.safeParse(c.req.param('userId'));
+    const parsed = placeholderNameRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!groupId.success || !userId.success || !parsed.success) {
+      return c.json({ error: 'invalid_request' }, 400);
+    }
+
+    const result = await renamePlaceholder(
+      c.get('db'),
+      groupId.data,
+      auth.user.id,
+      userId.data,
+      parsed.data.name,
+    );
+    if (!result.ok)
+      return c.json({ error: result.error }, result.error === 'forbidden' ? 403 : 404);
+    tellMembers(c, groupId.data);
+    return c.json({ ok: true });
   });
 
   groups.post('/:groupId/transfer', async (c) => {

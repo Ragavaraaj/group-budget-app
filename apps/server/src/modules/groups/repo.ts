@@ -377,6 +377,13 @@ export async function transferOwnership(
   if (targetId === ownerId) return { ok: false, error: 'invalid_target' };
   const target = await findMembership(db, groupId, targetId);
   if (!target || target.removedAt !== null) return { ok: false, error: 'not_found' };
+  // Someone who can't sign in can't own a group.
+  const [targetUser] = await db
+    .select({ isPlaceholder: users.isPlaceholder })
+    .from(users)
+    .where(eq(users.id, targetId))
+    .limit(1);
+  if (targetUser?.isPlaceholder) return { ok: false, error: 'invalid_target' };
 
   const d1 = db.$client;
   await d1.batch([
@@ -400,6 +407,92 @@ export async function transferOwnership(
   return after?.role === 'owner' && after.removedAt === null
     ? { ok: true }
     : { ok: false, error: 'not_found' };
+}
+
+export type PlaceholderResult =
+  | { ok: true; userId: string }
+  | { ok: false; error: 'forbidden' | 'group_full' };
+
+/**
+ * The owner adds someone who doesn't use the app, by name, so they can be part of splits and
+ * balances (a trip with a friend who isn't on Group Budget). It is an ordinary member in every
+ * way the data cares about, except that it has no Google account: its identity can never match a
+ * real sign-in, so nobody can become it. The member list and balances treat it like anyone else.
+ */
+export async function addPlaceholder(
+  db: Db,
+  groupId: string,
+  ownerId: string,
+  name: string,
+  now: number,
+): Promise<PlaceholderResult> {
+  const actor = await findMembership(db, groupId, ownerId);
+  if (!actor || actor.removedAt !== null || actor.role !== 'owner' || actor.group.isPersonal) {
+    return { ok: false, error: 'forbidden' };
+  }
+  if ((await activeMemberCount(db, groupId)) >= MAX_GROUP_MEMBERS) {
+    return { ok: false, error: 'group_full' };
+  }
+
+  const userId = uuidv7(now);
+  await runBatch(db, [
+    reserveSeq(db, 1),
+    db.insert(users).values({
+      id: userId,
+      googleSub: `placeholder:${userId}`,
+      email: `${userId}@placeholder.invalid`,
+      displayName: name,
+      avatarUrl: null,
+      createdAt: new Date(now),
+      lastLoginAt: new Date(now),
+      isPlaceholder: true,
+    }),
+    db.insert(memberships).values({
+      groupId,
+      userId,
+      role: 'member',
+      joinedAt: now,
+      removedAt: null,
+      serverSeq: seqFor(1, 1),
+    }),
+  ]);
+  return { ok: true, userId };
+}
+
+export type RenamePlaceholderResult =
+  | { ok: true }
+  | { ok: false; error: 'forbidden' | 'not_found' };
+
+/** The owner corrects a placeholder's name. Real people rename themselves through Google. */
+export async function renamePlaceholder(
+  db: Db,
+  groupId: string,
+  ownerId: string,
+  userId: string,
+  name: string,
+): Promise<RenamePlaceholderResult> {
+  const actor = await findMembership(db, groupId, ownerId);
+  if (!actor || actor.removedAt !== null || actor.role !== 'owner' || actor.group.isPersonal) {
+    return { ok: false, error: 'forbidden' };
+  }
+  const [target] = await db
+    .select({ isPlaceholder: users.isPlaceholder })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(and(eq(memberships.groupId, groupId), eq(memberships.userId, userId)))
+    .limit(1);
+  if (!target?.isPlaceholder) return { ok: false, error: 'not_found' };
+
+  // Names travel on the membership row, so it is touched too, to reach everyone's devices.
+  await runBatch(db, [
+    reserveSeq(db, 1),
+    db.update(users).set({ displayName: name }).where(eq(users.id, userId)),
+    db
+      .update(memberships)
+      .set({ serverSeq: seqFor(1, 1) })
+      .where(and(eq(memberships.groupId, groupId), eq(memberships.userId, userId))),
+  ]);
+  return { ok: true };
 }
 
 export type DeleteGroupResult = { ok: true } | { ok: false; error: 'forbidden' };

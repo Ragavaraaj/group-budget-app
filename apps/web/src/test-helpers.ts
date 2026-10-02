@@ -53,6 +53,7 @@ export const memberRow = (
   removedAt: null,
   displayName: 'Someone',
   avatarUrl: null,
+  isPlaceholder: false,
   serverSeq: 1,
   ...overrides,
 });

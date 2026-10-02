@@ -119,6 +119,7 @@ export interface MemberJoinRow {
   serverSeq: number;
   displayName: string;
   avatarUrl: string | null;
+  isPlaceholder: boolean;
 }
 
 export const toMemberRow = (r: MemberJoinRow): MemberRow => ({ ...r });

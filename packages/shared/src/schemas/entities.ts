@@ -186,6 +186,8 @@ export const memberRowSchema = z.object({
   removedAt: z.number().int().nullable(),
   displayName: z.string(),
   avatarUrl: z.string().nullable(),
+  /** Someone the owner added by name who doesn't use the app (they can't sign in). */
+  isPlaceholder: z.boolean().default(false),
   serverSeq: z.number().int().min(1),
 });
 
