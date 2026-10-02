@@ -7,8 +7,8 @@ Track personal and shared expenses in an installable app that works offline. Ind
 - **Shared** — pure TypeScript (money, dates, zod schemas) used by both.
 
 One Worker serves the API and the built web app from the same origin, so there is no CORS and session
-cookies just work. Everything is TypeScript. The design, roadmap and decisions are in
-[`docs/PLAN.md`](docs/PLAN.md).
+cookies just work. Everything is TypeScript. The design, roadmap and decisions start at
+[`docs/PLAN.md`](docs/PLAN.md), which links to one document per topic (architecture, data model, sync, auth, repository layout, roadmap and so on).
 
 **Status:** M0 (foundations) is done and runs on Workers + D1: an installable PWA shell that reloads
 and deep-links offline, a Worker API with `/api/healthz`, and a Drizzle schema with its first

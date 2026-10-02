@@ -1,0 +1,22 @@
+[← Plan overview](PLAN.md)
+
+# Risks
+
+| Risk                                                                     | Mitigation                                                                                                                                          |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Google sign-in lands outside an installed iOS web app (all iOS browsers are WebKit; the group installs from Chrome) | Attempt-login ([Auth](auth.md)): the app redeems its own session by secret, wherever the redirect ends; desktop-testable; real-iPhone confirmation run in M1b |
+| App used in an iOS Chrome tab, not installed (no service worker, 7-day storage cap) | Install banner, unsynced-data warnings, install instructions for the group ([Auth](auth.md))                                                         |
+| D1 has no interactive transactions                                       | Read/validate first, one atomic `db.batch`; sequence numbers assigned in SQL; batch rollback verified by a test; membership race window accepted and audited |
+| Free-plan limits (requests, D1 rows scanned/written) are hit             | Indexes on every hot query (enforced by a `rows_read` test from M1a); cheap polling with backoff; sliding sessions rarely write; a hit pauses the database until the daily reset, and the $5 plan lifts it within minutes; recheck limits before launch         |
+| Consent screen left in "Testing" (100-user cap, 7-day expiry)            | Publish to "In production" (basic scopes need no verification)                                                                                      |
+| Moving from `workers.dev` to a custom domain strands installed PWAs      | Buy the domain before real users install; the server is the source of truth, so a move costs a reinstall and re-sync                                  |
+| Sync bug loses data                                                      | Idempotent mutations, tombstones, audit log, Time Travel, two-client integration tests, always-available export, warn before logout with unsynced data |
+| v1 includes groups, so M1+M2 is large                                    | Milestones are independently shippable; M1a is usable alone as a personal ledger                                                                      |
+| iOS PWA limits (no Background Sync, storage eviction)                    | Flush on foreground, `storage.persist()`, server as source of truth                                                                                 |
+| Vendor lock-in to Cloudflare                                             | Hono and Drizzle are portable; only `wrangler.jsonc`, the D1 client and the entry point are Cloudflare-specific; migrations are plain SQL           |
+| Test tooling lags (Vitest pinned to 4.x, older bundled `workerd`)        | Pins documented in [Repository layout](repository-layout.md); revisit on each pool release; dev-only audit advisories tracked in [Security](security.md)                                                        |
+| Scope creep                                                              | Milestones with explicit exit criteria; extras live in M4                                                                                           |
+
+## Parked: React Server Components
+
+Not part of v1 or the roadmap. If revisited: `@vitejs/plugin-rsc` on the existing Vite setup, a **read-only** endpoint for reports and history only, and **no Server Functions** (the Dec 2025 critical RCE [CVE-2025-55182](https://github.com/advisories/GHSA-fv66-9v8q-g76r) was in Flight deserialization at Server Function endpoints, and offline mutation replays need a stable JSON API anyway). It would sit beside the offline-first path, not replace it, because an offline PWA cannot render on a server. The earlier, more detailed RSC design is in the git history of `docs/PLAN.md` (commit `00dab86`). The earlier VPS design (Node, SQLite, Caddy, Litestream, Docker) is in the history at commit `4c9b373`.

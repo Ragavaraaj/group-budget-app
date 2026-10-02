@@ -1,0 +1,11 @@
+[← Plan overview](PLAN.md)
+
+# Testing and quality
+
+- **`packages/shared` (Vitest + fast-check)**: property tests — splits always sum to total; balances across a group sum to zero; settle-up fully clears balances in ≤ n−1 transfers; no float drift; paise parsing/formatting round-trips.
+- **`apps/server` (Vitest 4 + `@cloudflare/vitest-pool-workers`)**: tests run **inside `workerd`**, the real Workers runtime, against a simulated D1 that has the real migrations applied (`vitest.config.ts` + `test/apply-migrations.ts`). They call `app.request(path, init, env)` and also `SELF.fetch` through the real Worker entry. Covers (as built) health, headers, config, the schema and the batch-atomicity guarantee, and (as M1 lands) the sign-up gate with the Google exchange mocked, session lifecycle, authorization per mutation, idempotent push, pull cursors and tombstones. It will also assert that the pull query's `meta.rows_read` (D1 reports rows scanned for every query) stays proportional to the rows returned, so a missing index fails a test instead of burning quota in production.
+- **`apps/web` (Vitest + `fake-indexeddb`)**: repositories, outbox, sync engine against a mock API (from M1).
+- **Sync integration**: real Worker + two simulated clients: offline edits on two devices, duplicate pushes, delete vs. edit, revoked membership.
+- **E2E (Playwright, Chromium)**: runs against `wrangler dev` serving the **built** web app and the API from one origin, which is how production behaves. As built: manifest installability, offline reload and deep-link served by the service worker, the real security headers with zero CSP violations, asset caching headers. From M1b: attempt-login with two browser contexts (one as the installed app, one as the browser). From M1: add an expense offline → reload offline → still there → reconnect → appears on a second context, using dev-login (the e2e server will start with `ENVIRONMENT=development` and `ENABLE_DEV_LOGIN=1`).
+- **Static**: strict TypeScript and **Biome** (lint, format, import order) with `noRestrictedImports` enforcing the boundaries in [Repository layout](repository-layout.md). Biome replaced ESLint + Prettier; it doesn't format Markdown/YAML.
+- **CI gates**: TS-only guard, Biome, typecheck (regenerates Worker types), unit tests, a dry-run bundle of the Worker, production-dependency audit, and the e2e job.
