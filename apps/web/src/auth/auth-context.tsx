@@ -39,6 +39,8 @@ interface AuthApi {
   devLogin(email: string): Promise<void>;
   /** The sync engine saw a 401. */
   markSessionExpired(): void;
+  /** The login screen started an installed-app sign-in: begin watching for it to finish. */
+  noteAttemptStarted(): void;
   /** Signs out on the server, then deletes this device's copy of the person's data. */
   signOut(): Promise<void>;
 }
@@ -55,6 +57,8 @@ async function loadConfig(): Promise<AuthConfigResponse | null> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: 'loading' });
+  // True while an installed-app sign-in may be finishing in a browser (see the watcher below).
+  const [watching, setWatching] = useState(hasPendingAttempt);
 
   const refresh = useCallback(async () => {
     try {
@@ -93,12 +97,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (state.status === 'loading') return;
     const waiting =
       state.status === 'signed_out' || (state.status === 'signed_in' && state.sessionExpired);
-    if (!waiting || !hasPendingAttempt()) return;
+    if (!watching || !waiting) return;
 
     let stopped = false;
     const tryRedeem = async () => {
-      if (stopped || document.visibilityState !== 'visible' || !hasPendingAttempt()) return;
-      if (await redeemAttempt()) await refresh();
+      if (stopped || document.visibilityState !== 'visible') return;
+      if (!hasPendingAttempt()) return setWatching(false); // cancelled, or past its time window
+      if (await redeemAttempt()) {
+        setWatching(false);
+        await refresh();
+      }
     };
     const interval = window.setInterval(() => void tryRedeem(), 2_000);
     document.addEventListener('visibilitychange', tryRedeem);
@@ -108,7 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', tryRedeem);
     };
-  }, [state, refresh]);
+  }, [state, refresh, watching]);
+
+  const noteAttemptStarted = useCallback(() => setWatching(true), []);
 
   const devLogin = useCallback(
     async (email: string) => {
@@ -136,8 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state]);
 
   const api = useMemo<AuthApi>(
-    () => ({ state, refresh, devLogin, markSessionExpired, signOut }),
-    [state, refresh, devLogin, markSessionExpired, signOut],
+    () => ({ state, refresh, devLogin, markSessionExpired, noteAttemptStarted, signOut }),
+    [state, refresh, devLogin, markSessionExpired, noteAttemptStarted, signOut],
   );
   return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>;
 }

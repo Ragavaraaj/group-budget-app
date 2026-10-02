@@ -22,7 +22,7 @@ const ERRORS: Record<string, string> = {
  * new person can be admitted by it.
  */
 export function SignInPanel({ invite }: { invite?: string }) {
-  const { state, devLogin } = useAuth();
+  const { state, devLogin, noteAttemptStarted } = useAuth();
   const [params] = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState('dev@example.com');
@@ -35,8 +35,10 @@ export function SignInPanel({ invite }: { invite?: string }) {
 
   const startGoogle = async () => {
     setBusy(true);
-    window.location.assign(await googleStartUrl({ invite }));
+    const url = await googleStartUrl({ invite }); // in the installed app this stores the attempt
+    noteAttemptStarted();
     setWaiting(isStandalone());
+    window.location.assign(url);
   };
 
   if (waiting) {

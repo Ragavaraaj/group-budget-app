@@ -30,7 +30,10 @@ export function createApp() {
     await next();
   });
   app.use(requestLogger());
-  app.use(secureHeaders());
+  // Same policy as the static files (public/_headers). It matters beyond tidiness: with the
+  // default `no-referrer`, a browser sends `Origin: null` on a form POST from one of the pages
+  // the Worker serves itself, and the origin check would refuse the sign-in confirmation.
+  app.use(secureHeaders({ referrerPolicy: 'strict-origin-when-cross-origin' }));
 
   // API responses carry per-user data: never let a browser or proxy cache them.
   app.use('/api/*', async (c, next) => {

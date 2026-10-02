@@ -392,6 +392,9 @@ describe('attempt-login (installed app on iOS)', () => {
     // The browser is shown a confirmation page, not signed in.
     expect(callback.status).toBe(200);
     expect(callback.headers.get('content-security-policy')).toContain("default-src 'none'");
+    // Not `no-referrer`: that makes a browser send `Origin: null` when this page's form posts back,
+    // which the CSRF check would (rightly) refuse. Found by the end-to-end test in a real browser.
+    expect(callback.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
     const html = await callback.text();
     expect(html).toContain('Finish signing in on your installed app?');
     expect(browser.cookies.has('gb_session')).toBe(false);
