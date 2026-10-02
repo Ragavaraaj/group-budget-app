@@ -4,5 +4,5 @@
     "types": ["node"],
     "lib": ["ES2023", "DOM"]
   },
-  "include": ["eslint.config.ts", "playwright.config.ts", "e2e"]
+  "include": ["playwright.config.ts", "e2e"]
 }

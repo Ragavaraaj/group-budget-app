@@ -1,4 +1,4 @@
-import { healthResponseSchema, type HealthResponse } from '@budget/shared';
+import { type HealthResponse, healthResponseSchema } from '@budget/shared';
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
 

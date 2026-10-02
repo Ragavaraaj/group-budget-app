@@ -10,8 +10,8 @@ test('serves an installable web app manifest', async ({ page, request }) => {
   await page.goto('/');
 
   const href = await page.locator('link[rel="manifest"]').getAttribute('href');
-  expect(href).toBeTruthy();
-  const manifest = (await (await request.get(href!)).json()) as {
+  if (!href) throw new Error('The page has no <link rel="manifest">');
+  const manifest = (await (await request.get(href)).json()) as {
     name: string;
     display: string;
     start_url: string;

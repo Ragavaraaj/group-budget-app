@@ -24,8 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:ts-only
-      - run: npm run format:check
-      - run: npm run lint
+      - run: npm run lint # Biome: lint + format + import order
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

@@ -1,9 +1,0 @@
-node_modules
-dist
-dev-dist
-coverage
-playwright-report
-test-results
-package-lock.json
-apps/server/drizzle
-apps/web/src/components/ui

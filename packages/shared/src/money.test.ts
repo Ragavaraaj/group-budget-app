@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { MAX_PAISE, formatPaise, parseRupees, toRupeesString } from './money';
+import { formatPaise, MAX_PAISE, parseRupees, toRupeesString } from './money';
 
 describe('parseRupees', () => {
   it.each([

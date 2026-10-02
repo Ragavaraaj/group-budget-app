@@ -1,5 +1,5 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
+@import "tailwindcss";
+@import "tw-animate-css";
 
 /* Dark mode follows the OS setting (Tailwind's default `dark:` variant is prefers-color-scheme),
    so there is no theme flash and no JavaScript involved. Tokens follow shadcn's neutral theme,

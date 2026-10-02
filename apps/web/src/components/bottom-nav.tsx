@@ -1,4 +1,4 @@
-import { ReceiptIndianRupee, Settings, Users, type LucideIcon } from 'lucide-react';
+import { type LucideIcon, ReceiptIndianRupee, Settings, Users } from 'lucide-react';
 import { NavLink } from 'react-router';
 import { cn } from '@/lib/utils';
 

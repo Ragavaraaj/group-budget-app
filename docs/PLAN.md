@@ -19,7 +19,8 @@ Status: **draft v3** · Scope: architecture and roadmap. Code starts at M0 (§12
 - **Stack**: React PWA with **shadcn/ui** + Tailwind; **Node + Hono + Drizzle**; SQLite.
 - **Auth**: **Google sign-in only** (no passwords, no passkeys in v1).
 - **Repo**: **npm workspaces monorepo** — `apps/web`, `apps/server`, `packages/shared`.
-- **TypeScript everywhere**: all source _and_ config files are `.ts`/`.tsx` (`vite.config.ts`, `eslint.config.ts`, `playwright.config.ts`, …). CI runs `npm run check:ts-only`, which fails if any `.js/.jsx/.mjs/.cjs` file is tracked.
+- **Lint/format**: **Biome** (one tool for lint, format and import order) instead of ESLint + Prettier.
+- **TypeScript everywhere**: all source _and_ config files are `.ts`/`.tsx` (`vite.config.ts`, `tsup.config.ts`, `playwright.config.ts`, …). CI runs `npm run check:ts-only`, which fails if any `.js/.jsx/.mjs/.cjs` file is tracked.
 - **Scale**: 50–100 users maximum. One small VPS and one SQLite file are comfortably enough.
 - **Domain**: will be bought, before the first real deploy (§9). Google sign-in needs it in production too (§7).
 - **RSC**: parked (§15). Nothing in v1 depends on it.
@@ -39,7 +40,7 @@ Status: **draft v3** · Scope: architecture and roadmap. Code starts at M0 (§12
 | Auth       | **Google sign-in** (OAuth 2.0 authorization-code + PKCE, server-side) via `arctic`; own cookie sessions | No passwords to store, no email provider, no recovery flow                                        | Add passkeys later                                                             |
 | Currency   | **INR only**, integer paise, `Intl.NumberFormat('en-IN')` (lakh/crore grouping)                         | Removes FX and mixed-currency reports entirely                                                    | Add a `currency` column (default `'INR'`) via a normal migration               |
 | Validation | **zod** schemas in `packages/shared`, used by web and server                                            | One definition of every API payload                                                               | —                                                                              |
-| Tooling    | npm workspaces, `tsx` (server dev), `tsup` (server build), Vitest, Playwright, ESLint (flat), Prettier  | Few moving parts                                                                                  | pnpm if workspaces get painful                                                 |
+| Tooling    | npm workspaces, `tsx` (server dev), `tsup` (server build), Vitest, Playwright, **Biome** (lint + format)  | Few moving parts                                                                                  | pnpm if workspaces get painful                                                 |
 | CI/CD      | GitHub Actions → server image on GHCR + static web build → SSH deploy                                   | Free, simple                                                                                      | rsync + systemd                                                                |
 
 ## 3. Architecture and data flow
@@ -241,7 +242,7 @@ Internet ─► Caddy :443 (auto-TLS) ─┬─► static files (apps/web/dist)
 - **`apps/web` (Vitest + `fake-indexeddb`)**: repositories, outbox, sync engine against a mock API.
 - **Sync integration**: real server + two simulated clients: offline edits on two devices, duplicate pushes, delete vs. edit, revoked membership.
 - **E2E (Playwright, Chromium)** against the production build with dev-login: add an expense offline (`context.setOffline`) → reload offline → still there → reconnect → appears on a second context; PWA installability checks.
-- **Static**: strict TypeScript, ESLint (flat config) with `no-restricted-imports` enforcing the boundaries in §11, Prettier.
+- **Static**: strict TypeScript and **Biome** (lint, format, import order) with `noRestrictedImports` enforcing the boundaries in §11. Biome replaced ESLint + Prettier; it doesn't format Markdown/YAML.
 - **CI gates**: typecheck, lint, unit, e2e, build.
 
 ## 11. Repository layout
@@ -249,7 +250,7 @@ Internet ─► Caddy :443 (auto-TLS) ─┬─► static files (apps/web/dist)
 ```
 group-budget-app/
 ├─ package.json            npm workspaces: ["apps/*", "packages/*"]; root scripts
-├─ tsconfig.base.json · eslint.config.js · .prettierrc
+├─ tsconfig.base.json · biome.json
 ├─ docs/PLAN.md
 ├─ packages/
 │  └─ shared/              @budget/shared — pure TS, no I/O
@@ -285,7 +286,7 @@ group-budget-app/
 └─ .github/workflows/      ci.yml
 ```
 
-**Dependency rules** (enforced by ESLint `no-restricted-imports`):
+**Dependency rules** (enforced by Biome's `noRestrictedImports`, for both package-name and relative imports):
 
 | Package           | May import                                                |
 | ----------------- | --------------------------------------------------------- |

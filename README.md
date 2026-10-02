@@ -34,7 +34,7 @@ deploy           Dockerfile, Caddyfile, compose, Litestream (drafts)
 ```
 
 Dependency direction is `web → shared ← server`; `shared` imports nothing of ours, and `web` and
-`server` never import each other. Lint enforces it.
+`server` never import each other. Biome's `noRestrictedImports` rule (see `biome.json`) enforces it.
 
 ## Scripts (run from the repo root)
 
@@ -45,7 +45,8 @@ Dependency direction is `web → shared ← server`; `shared` imports nothing of
 | `npm test`                              | Unit tests (Vitest) in every workspace                                 |
 | `npm run e2e`                           | Builds, then runs Playwright against the production build              |
 | `npm run typecheck`                     | `tsc` for every workspace and the root config files                    |
-| `npm run lint` / `npm run format:check` | Static checks                                                          |
+| `npm run lint`                          | Biome: lint, format and import-order check (read-only, what CI runs) |
+| `npm run lint:fix` / `npm run format`   | Apply Biome's fixes / formatting                                |
 | `npm run check:ts-only`                 | Fails if any `.js/.jsx/.mjs/.cjs` source file is tracked               |
 | `npm run db:generate`                   | Generate a Drizzle migration after editing `apps/server/src/db/schema` |
 
@@ -53,8 +54,11 @@ Migrations in `apps/server/drizzle` are committed and applied automatically when
 
 ## Notes
 
-- **TypeScript only.** Config files are `.ts` too (`vite.config.ts`, `eslint.config.ts`,
+- **TypeScript only.** Config files are `.ts` too (`vite.config.ts`, `tsup.config.ts`,
   `playwright.config.ts`, ...). CI runs `check:ts-only`.
+- **Biome** replaces ESLint and Prettier (one fast tool for lint, format and import order). It does not
+  format Markdown or YAML, so keep those tidy by hand. `apps/web/src/components/ui` (generated shadcn
+  code) is linted but not reformatted.
 - **Adding shadcn components.** From `apps/web`: `npx shadcn@latest add <component>`
   (`components.json` is already configured). Generated files land in `src/components/ui`.
 - **e2e in a sandbox with a pre-installed Chromium:** set `PLAYWRIGHT_CHROMIUM_PATH` to its binary.
