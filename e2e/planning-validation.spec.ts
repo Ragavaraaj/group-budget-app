@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import {
   addExpenseOn,
+  clearDate,
   daysAgo,
   devSignIn,
   groupOfTwo,
@@ -161,8 +162,7 @@ test.describe('recurring expenses: what is refused', () => {
     await expect(add).toBeDisabled();
 
     // Taking the end date away fixes it.
-    await page.getByLabel('Until (optional)', { exact: true }).click();
-    await page.getByRole('button', { name: 'Clear date' }).click();
+    await clearDate(page, 'Until (optional)');
     await expect(page.getByLabel('Until (optional)', { exact: true })).toHaveText('No end');
     await expect(add).toBeEnabled();
   });

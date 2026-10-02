@@ -81,6 +81,13 @@ export async function pickDate(page: Page, label: string, iso: string): Promise<
   await expect(page.getByRole('combobox', { name: 'Choose the Year' })).toHaveCount(0);
 }
 
+/** Empties an optional date picker (the one named by `label`) with its "Clear date" button. */
+export async function clearDate(page: Page, label: string): Promise<void> {
+  await page.getByLabel(label, { exact: true }).click();
+  await page.getByRole('button', { name: 'Clear date' }).click();
+  await expect(page.getByRole('combobox', { name: 'Choose the Year' })).toHaveCount(0);
+}
+
 /** Adds a personal expense through the form, on a given day. */
 export async function addExpenseOn(
   page: Page,
