@@ -60,6 +60,15 @@ function localIso(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** Chooses a day (`YYYY-MM-DD`) in the date picker named by `label`. */
+export async function pickDate(page: Page, label: string, iso: string): Promise<void> {
+  const [year, month] = iso.split('-').map(Number) as [number, number];
+  await page.getByLabel(label, { exact: true }).click();
+  await page.getByRole('combobox', { name: 'Choose the Year' }).selectOption(String(year));
+  await page.getByRole('combobox', { name: 'Choose the Month' }).selectOption(String(month - 1));
+  await page.locator(`[data-day="${iso}"] button`).click();
+}
+
 /** Adds a personal expense through the form, on a given day. */
 export async function addExpenseOn(
   page: Page,
@@ -73,7 +82,7 @@ export async function addExpenseOn(
     const chip = page.getByRole('button', { name: details.category, exact: true });
     if ((await chip.getAttribute('aria-pressed')) !== 'true') await chip.click();
   }
-  if (details.date) await page.getByLabel('Date').fill(details.date);
+  if (details.date) await pickDate(page, 'Date', details.date);
   await page.getByLabel('Note (optional)').fill(details.note);
   await page.getByRole('button', { name: 'Add expense' }).click();
   // The form closes only after the expense has been written to the local database.

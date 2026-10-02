@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { useDb, useMe } from '@/auth/sync-context';
 import { NotFoundPage } from '@/components/not-found-page';
 import { Button } from '@/components/ui/button';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -257,26 +258,25 @@ function RecurringForm({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label htmlFor="rule-start">First on</Label>
-          <Input
+          <DatePicker
             id="rule-start"
-            type="date"
-            required
             // A new rule can start in the past, as far back as the server will catch up (and the
             // hint below says so); an existing one keeps whatever date it has.
             min={existing ? undefined : addDays(toLocalDate(), -RECURRING_MAX_BACKFILL_DAYS)}
             value={startOn}
-            onChange={(e) => setStartOn(e.target.value)}
+            onChange={setStartOn}
           />
         </div>
         <div className="space-y-2">
           <Label htmlFor="rule-end">Until (optional)</Label>
-          <Input
+          <DatePicker
             id="rule-end"
-            type="date"
             min={startOn}
             value={endOn}
-            onChange={(e) => setEndOn(e.target.value)}
-            aria-invalid={endBeforeStart}
+            onChange={setEndOn}
+            invalid={endBeforeStart}
+            placeholder="No end"
+            clearable
           />
         </div>
       </div>

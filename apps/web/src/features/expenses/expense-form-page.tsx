@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useDb, useMe } from '@/auth/sync-context';
 import { NotFoundPage } from '@/components/not-found-page';
 import { Button } from '@/components/ui/button';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -240,14 +241,7 @@ function ExpenseForm({ existing, groupId }: ExpenseFormProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label htmlFor="date">Date</Label>
-          <Input
-            id="date"
-            type="date"
-            required
-            max={toLocalDate()}
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <DatePicker id="date" max={toLocalDate()} value={date} onChange={setDate} />
         </div>
         {!existing && groups.length > 1 ? (
           <div className="space-y-2">

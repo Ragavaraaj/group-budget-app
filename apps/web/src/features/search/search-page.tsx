@@ -4,6 +4,7 @@ import { useDeferredValue, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -164,20 +165,24 @@ export function SearchPage() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="search-from">From</Label>
-              <Input
+              <DatePicker
                 id="search-from"
-                type="date"
                 value={from}
-                onChange={(e) => setFrom(e.target.value)}
+                onChange={setFrom}
+                max={to || undefined}
+                placeholder="Any"
+                clearable
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="search-to">To</Label>
-              <Input
+              <DatePicker
                 id="search-to"
-                type="date"
                 value={to}
-                onChange={(e) => setTo(e.target.value)}
+                onChange={setTo}
+                min={from || undefined}
+                placeholder="Any"
+                clearable
               />
             </div>
             <div className="space-y-1.5">
