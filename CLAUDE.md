@@ -101,6 +101,10 @@ In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to it
     assert with web-first `expect(...)`, never `waitForTimeout` to "let something finish".
   - Negative paths matter here: refused input, expired sessions, someone not allowed in, offline.
 - What is and is not covered, with counts: [`docs/testing.md`](docs/testing.md). Update it when you add specs.
+- **When a test finds a real bug**, do not weaken the test. Write the bug up in
+  [`docs/known-bugs.md`](docs/known-bugs.md) (steps, expected, actual, cause, the test) and mark the
+  test `test.fail(true, 'BUG-nnn: ...')` so it passes while the bug is open and fails when it is
+  fixed. A failure caused by the test itself is not a bug: fix the test.
 
 ## Where the design lives
 
@@ -113,6 +117,7 @@ In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to it
 | Screens, routes, UX | [`docs/frontend.md`](docs/frontend.md) |
 | Hosting, deploy, backups | [`docs/infrastructure.md`](docs/infrastructure.md) |
 | Roadmap, risks | [`docs/roadmap.md`](docs/roadmap.md), [`docs/risks.md`](docs/risks.md) |
+| Bugs found by the tests, not yet fixed | [`docs/known-bugs.md`](docs/known-bugs.md) |
 
 ## Git
 
