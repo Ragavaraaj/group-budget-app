@@ -306,8 +306,10 @@ export function guessSpendingSign(
   let positives = 0;
   for (const row of rows) {
     const amount = parseAmount(row[mapping.amount] ?? '');
-    if (amount?.negative) negatives++;
-    else if (amount) positives++;
+    // Nothing is imported from a zero (a waived charge, zero interest), so it says nothing.
+    if (!amount || amount.minor === 0) continue;
+    if (amount.negative) negatives++;
+    else positives++;
   }
   return negatives >= positives ? 'negative' : 'positive';
 }
@@ -336,31 +338,68 @@ export function findDuplicates(
 }
 
 // Words that appear in Indian bank narrations, tried in order, and the default category each means.
-// Short words that also sit inside other words (TORRENT POWER, MOTOROLA, METROPOLIS) must match
-// whole (`\b`), with the forms that run together with other text spelled out; long, distinctive
-// brand names can match anywhere in the narration.
+// A short word that also sits inside other words (TORRENT POWER, MOTOROLA, COCA-COLA, METROPOLIS)
+// must not have a letter on either side: `word()`. Digits, `_`, `-` and `/` around it are fine
+// (`UPI_OLA_123`, `OLA2345`). The forms that run letters together (BHARATGAS, PVRINOX) are listed
+// next to it. Long, distinctive names (swiggy, amazon) match anywhere in the narration.
+const word = (...alternatives: string[]) => `(?:^|[^a-z])(?:${alternatives.join('|')})(?![a-z])`;
+const pattern = (...parts: string[]) => new RegExp(parts.join('|'), 'i');
+
 const KEYWORDS: [RegExp, string][] = [
   [
-    /swiggy|zomato|restaurant|cafe|café|dominos|mcdonald|\bkfc\b|pizza|starbucks|eatery|bakery|dining/i,
+    pattern(
+      'swiggy|zomato|restaurant|cafe|café|dominos|mcdonald|kfc|pizza|starbucks|eatery|bakery|dining',
+    ),
     'Food & dining',
   ],
-  [/bigbasket|blinkit|zepto|dmart|grofers|grocer|supermarket|instamart|\bfresh\b/i, 'Groceries'],
   [
-    /\b(?:uber|ola(?:cabs?)?|rapido|metro|irctc)\b|petrol|fuel|fastag|redbus|parking|indian oil|hpcl|bpcl/i,
+    pattern(
+      'bigbasket|blinkit|zepto|dmart|grofers|grocer|supermarket|instamart|freshtohome',
+      word('fresh'),
+    ),
+    'Groceries',
+  ],
+  [
+    pattern(
+      'uber|rapido|irctc|petrol|fuel|fastag|redbus|parking|indian oil|hpcl|bpcl',
+      word('ola(?:cabs?)?', 'metro'),
+    ),
     'Transport',
   ],
-  [/\b(?:rent|rental|maintenance|society|housing)\b/i, 'Rent & home'],
+  [pattern('maintenance|society|housing', word('rent', 'rental')), 'Rent & home'],
   [
-    /electricity|bescom|airtel|jio|vodafone|\bvi\b|broadband|recharge|\bgas\b|water bill|bill ?pay|insurance|\blic\b/i,
+    pattern(
+      'electricity|bescom|airtel|jio|vodafone|broadband|recharge|water bill|bill ?pay|insurance',
+      'bharatgas|hpgas|indanegas',
+      word('gas', 'vi', 'lic'),
+    ),
     'Bills & utilities',
   ],
-  [/amazon|flipkart|myntra|ajio|nykaa|meesho/i, 'Shopping'],
-  [/pharmacy|apollo|hospital|clinic|medplus|pharmeasy|\b1mg\b|diagnostic|doctor/i, 'Health'],
+  [pattern('amazon|flipkart|myntra|ajio|nykaa|meesho'), 'Shopping'],
   [
-    /netflix|hotstar|spotify|prime video|bookmyshow|\bpvr\b|\binox\b|youtube|cinema/i,
+    pattern(
+      'pharmacy|apollo|hospital|clinic|medplus|pharmeasy|diagnostic|doctor',
+      'tata ?1mg',
+      word('1mg'),
+    ),
+    'Health',
+  ],
+  [
+    pattern(
+      'netflix|hotstar|spotify|prime video|bookmyshow|youtube|cinema',
+      'pvrinox',
+      word('pvr', 'inox'),
+    ),
     'Entertainment',
   ],
-  [/makemytrip|goibibo|indigo|air india|vistara|hotel|\boyo\b|airbnb|cleartrip/i, 'Travel'],
+  [
+    pattern(
+      'makemytrip|goibibo|indigo|air india|vistara|hotel|airbnb|cleartrip',
+      'oyorooms',
+      word('oyo'),
+    ),
+    'Travel',
+  ],
 ];
 
 /** The id of the category a narration most likely belongs to, or null when nothing is recognised. */

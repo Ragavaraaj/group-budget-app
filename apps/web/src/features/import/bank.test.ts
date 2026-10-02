@@ -239,6 +239,19 @@ describe('a single amount column', () => {
     expect(guessSpendingSign([['02/10/2026', 'x', 'n/a']], mapping)).toBe('negative');
   });
 
+  it('does not let zero amounts, which are never imported, flip the guess', () => {
+    const rows = [
+      ['02/10/2026', 'Card fee', '-450.00'],
+      ['03/10/2026', 'Card fee', '-120.00'],
+      ['04/10/2026', 'Fee waived', '0.00'],
+      ['05/10/2026', 'Fee waived', '0.00'],
+      ['06/10/2026', 'Zero interest', '0.00'],
+    ];
+    expect(guessSpendingSign(rows, mapping)).toBe('negative');
+    const result = interpretRows(rows, 2, mapping, { dateOrder: 'dmy', spendingIs: 'negative' });
+    expect(result.rows).toHaveLength(2);
+  });
+
   it('calls a mostly-positive column a credit card even when a payment is a big minus', () => {
     const purchases = Array.from({ length: 40 }, (_, i) => [
       `${String((i % 28) + 1).padStart(2, '0')}/09/2026`,
@@ -275,6 +288,8 @@ describe('words inside other words', () => {
     { id: 'travel', name: 'Travel' },
     { id: 'health', name: 'Health' },
     { id: 'food', name: 'Food & dining' },
+    { id: 'groceries', name: 'Groceries' },
+    { id: 'entertainment', name: 'Entertainment' },
   ];
 
   it.each([
@@ -288,6 +303,28 @@ describe('words inside other words', () => {
     ['METROPOLIS HEALTHCARE', null],
   ])('does not file %s under a category it only contains letters of', (note, expected) => {
     expect(suggestCategory(note, categories)).toBe(expected);
+  });
+
+  it.each([
+    ['UBERINDIA', 'transport'],
+    ['RAPIDOBIKE', 'transport'],
+    ['IRCTCWEB', 'transport'],
+    ['IRCTC123', 'transport'],
+    ['OLA2345', 'transport'],
+    ['UPI_OLA_123', 'transport'],
+    ['UPI/OLACABS/123', 'transport'],
+    ['UBER_TRIP', 'transport'],
+    ['BHARATGAS BOOKING', 'bills'],
+    ['HPGAS', 'bills'],
+    ['PAYMENT-GAS-BILL', 'bills'],
+    ['TATA1MG', 'health'],
+    ['TATA 1MG ORDER', 'health'],
+    ['PVRINOX', 'entertainment'],
+    ['OYOROOMS', 'travel'],
+    ['KFCINDIA', 'food'],
+    ['FRESHTOHOME', 'groceries'],
+  ])('still files %s, where the letters run into other text', (note, id) => {
+    expect(suggestCategory(note, categories)).toBe(id);
   });
 
   it('still finds the whole words', () => {

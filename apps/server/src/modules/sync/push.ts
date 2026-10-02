@@ -339,8 +339,10 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
       applied(m, existing.version, false);
       continue;
     }
-    // Restoring puts a row back among the group's budgets and rules, so it counts against the cap.
-    if (!wantDeleted && !room.take(m.entity, groupId)) {
+    // Restoring puts a row back among the group's budgets and rules, so it counts against the
+    // cap; deleting one gives its place back, for what comes later in this same push.
+    if (wantDeleted) room.release(m.entity, groupId);
+    else if (!room.take(m.entity, groupId)) {
       reject(m, 'limit_reached');
       continue;
     }
@@ -457,12 +459,16 @@ export function recurringServerFields(
 
 /**
  * A rule's schedule after it is deleted (nothing is ever due while it is, so the job's index
- * doesn't carry it) or restored. A restored rule starts again from today, the same as a resumed
- * one: it was off in between, and it must not go back to a date from before it was deleted.
+ * doesn't carry it) or restored. An Undo soon after the delete (the same day in India) loses
+ * nothing: the rule carries on from the last date it made, as if it had not been deleted. A rule
+ * that was gone longer starts again from today, the same as a resumed one, so it never revives
+ * dates from while it was deleted. Either way it goes back no further than the backfill floor.
  */
 function recurringTombstoneSchedule(rule: RecurringRow, deleting: boolean, now: number): Schedule {
   if (deleting) return { lastGeneratedOn: rule.lastGeneratedOn, nextDueOn: null };
-  return scheduleOf(rule, rule.lastGeneratedOn, now, true);
+  const undo =
+    rule.deletedAt !== null && toIndiaDate(new Date(rule.deletedAt)) === toIndiaDate(new Date(now));
+  return scheduleOf(rule, rule.lastGeneratedOn, now, !undo);
 }
 
 function scheduleOf(
@@ -523,6 +529,12 @@ async function roomLeft(db: Db, todo: Mutation[], known: Map<string, Known>) {
       if (n >= cap) return false;
       used.set(k, n + 1);
       return true;
+    },
+    /** Gives a place back when a row is deleted, so the cap is checked against what the push leaves. */
+    release(entity: EntityName, groupId: string): void {
+      if (entity !== 'budget' && entity !== 'recurring') return;
+      const k = `${entity}:${groupId}`;
+      used.set(k, Math.max(0, (used.get(k) ?? 0) - 1));
     },
   };
 }

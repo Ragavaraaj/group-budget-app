@@ -65,6 +65,36 @@ test.describe('budgets', () => {
     await expect(page.getByTestId('budget-bar')).toContainText('of ₹7,500');
   });
 
+  test('stops offering Add once everything has a budget, and says so', async ({ page }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('budget-full'));
+    await page.goto('/budgets');
+
+    // A new budget goes to the first thing that has none: Everything, then each category in turn.
+    const add = page.getByRole('button', { name: 'Add' });
+    const bars = page.getByTestId('budget-bar');
+    let made = 0;
+    while ((await add.isEnabled()) && made < 30) {
+      await add.click();
+      await page.getByLabel('Monthly limit').fill('1000');
+      await page.getByRole('button', { name: 'Save' }).click();
+      made++;
+      await expect(bars).toHaveCount(made);
+    }
+    expect(made).toBeGreaterThan(2);
+
+    // Nothing is left to pick, so a second budget for the same thing can't be made, and the page
+    // says why the button is off (a greyed-out button can't be hovered for a reason on a phone).
+    await expect(add).toBeDisabled();
+    await expect(page.getByTestId('budgets-all-set')).toContainText('Everything has a budget');
+    await expect(bars).toHaveCount(made);
+
+    // Removing one brings the button back.
+    await page.getByRole('button', { name: 'Remove Everything budget' }).click();
+    await expect(add).toBeEnabled();
+    await expect(page.getByTestId('budgets-all-set')).toBeHidden();
+  });
+
   test('shows up on a second device', async ({ page, browser }) => {
     const email = uniqueEmail('budget-sync');
     await page.goto('/login');

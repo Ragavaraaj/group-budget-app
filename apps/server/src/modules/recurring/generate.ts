@@ -2,6 +2,7 @@ import {
   addDays,
   nextOccurrence,
   occurrencesAfter,
+  RECURRING_MAX_BACKFILL_DAYS,
   RECURRING_MAX_PER_RUN,
   recurringExpenseId,
   toIndiaDate,
@@ -13,7 +14,7 @@ import { memberships, recurringRules } from '../../db/schema';
 export interface GenerateResult {
   /** Occurrences turned into expenses in this run. */
   generated: number;
-  /** Rules that moved on. */
+  /** Rules this run moved on, including any that was only moved past a date already made. */
   rules: number;
   /** The groups that got new expenses, so their members' apps can be told. */
   groupIds: string[];
@@ -33,6 +34,26 @@ const everyoneStillIn = sql`NOT EXISTS (
               WHERE json_extract(p.value, '$.userId') = gone.user_id)
       OR EXISTS (SELECT 1 FROM json_each(${recurringRules.shares}) AS s
                  WHERE json_extract(s.value, '$.userId') = gone.user_id)
+    )
+)`;
+
+/**
+ * When someone the rule involves (its creator, a payer or a person in the split) last came back
+ * to the group, if that was after the rule was last edited. A rule is only ever saved while all of
+ * them are in, so a later `joined_at` means they left and returned (reinstated, or rejoined through
+ * a link) in the meantime. The rule waited while they were away, and picks up from the day they
+ * returned: it must not make up, in their name, the weeks they weren't in the group.
+ */
+const returnedSinceEdit = sql<number | null>`(
+  SELECT MAX(back.joined_at) FROM ${memberships} AS back
+  WHERE back.group_id = ${recurringRules.groupId}
+    AND back.joined_at > ${recurringRules.updatedAt}
+    AND (
+      back.user_id = ${recurringRules.createdBy}
+      OR EXISTS (SELECT 1 FROM json_each(${recurringRules.payers}) AS p
+                 WHERE json_extract(p.value, '$.userId') = back.user_id)
+      OR EXISTS (SELECT 1 FROM json_each(${recurringRules.shares}) AS s
+                 WHERE json_extract(s.value, '$.userId') = back.user_id)
     )
 )`;
 
@@ -73,7 +94,7 @@ export async function generateDueExpenses(
   const today = toIndiaDate(new Date(now));
 
   const due = await db
-    .select({ rule: recurringRules })
+    .select({ rule: recurringRules, returnedAt: returnedSinceEdit })
     .from(recurringRules)
     .innerJoin(
       memberships,
@@ -97,18 +118,23 @@ export async function generateDueExpenses(
   // Work out what each rule makes in this run, oldest first, without going over the limit.
   const plans: {
     rule: (typeof due)[number]['rule'];
-    /** Never empty: a rule with nothing left to make is only moved past today. */
+    /** Empty for a rule that only needs moving past a date it has already made. */
     dates: string[];
     next: string | null;
   }[] = [];
   let room = limit;
-  for (const { rule } of due) {
+  // No run goes back further than an edit could (`scheduleOf` in the sync push).
+  const floor = addDays(today, -RECURRING_MAX_BACKFILL_DAYS - 1);
+  for (const { rule, returnedAt } of due) {
     if (room <= 0 || rule.nextDueOn === null) break;
-    const startAfter = addDays(rule.nextDueOn, -1);
-    const after =
-      rule.lastGeneratedOn !== null && rule.lastGeneratedOn > startAfter
-        ? rule.lastGeneratedOn
-        : startAfter;
+    // Not before the day before the next date, the last date made, the floor, or the day before
+    // someone came back (the day they came back is made).
+    const after = [
+      addDays(rule.nextDueOn, -1),
+      rule.lastGeneratedOn,
+      floor,
+      returnedAt === null ? null : addDays(toIndiaDate(new Date(returnedAt)), -1),
+    ].reduce<string>((latest, date) => (date !== null && date > latest ? date : latest), '');
     const dates = occurrencesAfter(rule, after, today, room);
     const next = nextOccurrence(rule, dates.at(-1) ?? after);
     if (dates.length === 0 && next === rule.nextDueOn) continue;
@@ -186,12 +212,12 @@ export async function generateDueExpenses(
   const results = await d1.batch(statements);
 
   // A rule counts only if its own update took effect: that is the one that says this run, and
-  // not another, moved it on.
+  // not another, moved it on. Only rules that made expenses tell their group.
   const moved = plans.filter((_, i) => (results[updateAt[i] as number]?.meta.changes ?? 0) > 0);
   const made = moved.filter((plan) => plan.dates.length > 0);
   return {
     generated: made.reduce((sum, plan) => sum + plan.dates.length, 0),
-    rules: made.length,
+    rules: moved.length,
     groupIds: [...new Set(made.map((plan) => plan.rule.groupId))],
   };
 }

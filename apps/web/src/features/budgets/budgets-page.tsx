@@ -83,15 +83,16 @@ export function BudgetsPage() {
           </Link>
         </Button>
         <h1 className="flex-1 text-xl font-semibold tracking-tight">Budgets</h1>
-        <Button
-          size="sm"
-          disabled={nothingLeft}
-          title={nothingLeft ? 'Everything already has a budget' : undefined}
-          onClick={() => setEditing('new')}
-        >
+        <Button size="sm" disabled={nothingLeft} onClick={() => setEditing('new')}>
           <Plus /> Add
         </Button>
       </header>
+
+      {nothingLeft ? (
+        <p className="text-muted-foreground text-sm" data-testid="budgets-all-set">
+          Everything has a budget. Tap one to change it.
+        </p>
+      ) : null}
 
       {groups.length > 1 ? (
         <Select

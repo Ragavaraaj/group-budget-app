@@ -4,7 +4,13 @@ import {
   waitOnExecutionContext,
 } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
-import { addDays, RECURRING_MAX_PER_RUN, toIndiaDate, uuidv7 } from '@budget/shared';
+import {
+  addDays,
+  RECURRING_MAX_BACKFILL_DAYS,
+  RECURRING_MAX_PER_RUN,
+  toIndiaDate,
+  uuidv7,
+} from '@budget/shared';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db, resetDb } from '../../../test/helpers';
@@ -192,10 +198,15 @@ describe('generating recurring expenses', () => {
       .set({ nextDueOn: addDays(today(), -7) })
       .where(eq(recurringRules.id, rule.id));
 
-    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
+    // The rule is moved on, which the result says, though it made nothing.
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({
+      generated: 0,
+      rules: 1,
+      groupIds: [],
+    });
     expect(await allExpenses()).toHaveLength(2);
     expect(await generatedAuditRows()).toHaveLength(entries);
-    // The rule is moved on, so it doesn't turn up in every run from now on.
+    // ...so it doesn't turn up in every run from now on.
     expect((await ruleRow(rule.id))?.nextDueOn).toBe(addDays(today(), 7));
     expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
   });
@@ -296,6 +307,55 @@ describe('generating recurring expenses', () => {
       upsert('recurring', { ...names, shares: [{ userId: alice.id, amountMinor: 8_000_00 }] }, 1),
     ]);
     expect((await generateDueExpenses(db, NOW())).generated).toBeGreaterThan(0);
+  });
+
+  it('never goes back further than an edit could, however old the next date is', async () => {
+    const rule = ruleData(groupId, alice.id, {
+      frequency: 'weekly',
+      startOn: addDays(today(), -7),
+    });
+    await push(alice, [upsert('recurring', rule)]);
+    // A rule that has been waiting for months (put back by hand: the test can't wait).
+    await db
+      .update(recurringRules)
+      .set({ startOn: addDays(today(), -200), nextDueOn: addDays(today(), -200) })
+      .where(eq(recurringRules.id, rule.id));
+
+    expect((await generateDueExpenses(db, NOW(), 40)).generated).toBeGreaterThan(0);
+    const oldest = (await allExpenses()).map((e) => e.occurredOn).sort()[0] as string;
+    expect(oldest >= addDays(today(), -RECURRING_MAX_BACKFILL_DAYS)).toBe(true);
+  });
+
+  it('carries on from the day someone came back, not for the weeks they were away', async () => {
+    const bob = await signedIn('bob@example.com', 'Bob');
+    const shared = await createSharedGroup(alice);
+    await join(bob, (await makeInvite(alice, shared)).token);
+    const rule = ruleData(shared, alice.id, {
+      note: 'Shared rent',
+      frequency: 'weekly',
+      startOn: addDays(today(), -63), // nine weeks ago: a date falls on today too
+      payers: [{ userId: alice.id, amountMinor: 8_000_00 }],
+      shares: [
+        { userId: alice.id, amountMinor: 4_000_00 },
+        { userId: bob.id, amountMinor: 4_000_00 },
+      ],
+    });
+    await push(alice, [upsert('recurring', rule)]);
+    await bob.client.request(`/api/groups/${shared}/members/${bob.id}`, { method: 'DELETE' });
+    expect((await generateDueExpenses(db, NOW())).generated).toBe(0);
+
+    // The owner brings Bob back. The rule had been waiting, with eight weeks to its name.
+    const back = await alice.client.request(`/api/groups/${shared}/members/${bob.id}/reinstate`, {
+      method: 'POST',
+    });
+    expect(back.status).toBe(200);
+
+    // Nothing back-dated is made in Bob's name: only today, the day he came back.
+    expect(await generateDueExpenses(db, NOW(), 40)).toMatchObject({ generated: 1, rules: 1 });
+    expect((await allExpenses()).map((e) => e.occurredOn)).toEqual([today()]);
+    // And the rule is on to its next date, rather than going round again.
+    expect((await ruleRow(rule.id))?.nextDueOn).toBe(addDays(today(), 7));
+    expect(await generateDueExpenses(db, NOW(), 40)).toMatchObject({ generated: 0, rules: 0 });
   });
 
   it('lets a member take over a rule whose creator has left, by editing it', async () => {

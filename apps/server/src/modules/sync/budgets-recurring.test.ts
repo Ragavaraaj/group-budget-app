@@ -185,6 +185,76 @@ describe('the limits and restoring', () => {
   });
 });
 
+describe('the limits, within one push', () => {
+  const fill = async (n: number) => {
+    const rules = Array.from({ length: n }, () => ruleData(groupId, alice.id));
+    for (let i = 0; i < rules.length; i += 10) {
+      await push(
+        alice,
+        rules.slice(i, i + 10).map((data) => upsert('recurring', data)),
+      );
+    }
+    return rules as { id: string }[];
+  };
+
+  it('lets a delete and its Undo arrive together when the group is full', async () => {
+    const rules = await fill(MAX_RECURRING_PER_GROUP);
+    const first = rules[0] as { id: string };
+    // An offline "delete, then Undo" is two queued changes sent in one request.
+    const results = await push(alice, [
+      tombstone('delete', 'recurring', first.id, groupId, 1),
+      tombstone('restore', 'recurring', first.id, groupId, 2),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['applied', 'applied']);
+    expect((await ruleRow(first.id))?.deletedAt).toBeNull();
+  });
+
+  it('counts what a push leaves behind: a delete makes room for a restore or a new rule', async () => {
+    const rules = await fill(MAX_RECURRING_PER_GROUP);
+    const [a, b, c] = rules as [{ id: string }, { id: string }, { id: string }];
+    await push(alice, [tombstone('delete', 'recurring', a.id, groupId, 1)]);
+    await push(alice, [upsert('recurring', ruleData(groupId, alice.id))]); // full again
+
+    const swapped = await push(alice, [
+      tombstone('delete', 'recurring', b.id, groupId, 1),
+      tombstone('restore', 'recurring', a.id, groupId, 2),
+    ]);
+    expect(swapped.map((r) => r.status)).toEqual(['applied', 'applied']);
+
+    // The other way round, the restore comes first and the group is full.
+    const wrongWay = await push(alice, [
+      tombstone('restore', 'recurring', b.id, groupId, 2),
+      tombstone('delete', 'recurring', c.id, groupId, 1),
+    ]);
+    expect(wrongWay[0]).toMatchObject({ status: 'rejected', reason: 'limit_reached' });
+    expect(wrongWay[1]?.status).toBe('applied');
+  });
+
+  it('does the same for budgets', async () => {
+    const all = Array.from({ length: MAX_BUDGETS_PER_GROUP }, () => budgetData(groupId));
+    for (let i = 0; i < all.length; i += 10) {
+      await push(
+        alice,
+        all.slice(i, i + 10).map((data) => upsert('budget', data)),
+      );
+    }
+    const first = all[0] as ReturnType<typeof budgetData>;
+    const results = await push(alice, [
+      tombstone('delete', 'budget', first.id, groupId, 1),
+      tombstone('restore', 'budget', first.id, groupId, 2),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['applied', 'applied']);
+
+    // Deleting one in the same push makes room for a new one.
+    const second = all[1] as ReturnType<typeof budgetData>;
+    const swap = await push(alice, [
+      tombstone('delete', 'budget', second.id, groupId, 1),
+      upsert('budget', budgetData(groupId)),
+    ]);
+    expect(swap.map((r) => r.status)).toEqual(['applied', 'applied']);
+  });
+});
+
 describe('recurring rules', () => {
   it('stores a rule with the date the next expense is due', async () => {
     const data = ruleData(groupId, alice.id, { categoryId, startOn: addDays(today(), 3) });
@@ -285,22 +355,44 @@ describe('recurring rules', () => {
     expect((await ruleRow(data.id))?.deletedAt).not.toBeNull();
   });
 
-  it('has no next date once deleted, and starts again from today when restored', async () => {
-    const start = addDays(today(), -60);
+  it('has no next date once deleted, and an Undo the same day loses nothing', async () => {
+    const start = addDays(today(), -14);
     const data = ruleData(groupId, alice.id, { startOn: start, frequency: 'weekly' });
     await push(alice, [upsert('recurring', data)]);
-    expect((await ruleRow(data.id))?.nextDueOn).not.toBeNull();
+    expect((await ruleRow(data.id))?.nextDueOn).toBe(start);
 
     await push(alice, [tombstone('delete', 'recurring', data.id, groupId, 1)]);
     expect((await ruleRow(data.id))?.nextDueOn).toBeNull();
 
     const [restored] = await push(alice, [tombstone('restore', 'recurring', data.id, groupId, 2)]);
     expect(restored).toMatchObject({ status: 'applied', version: 3 });
+    // The job hasn't made the back-dated dates yet, and still will: it is as if nothing happened.
+    expect(await ruleRow(data.id)).toMatchObject({
+      nextDueOn: start,
+      lastGeneratedOn: null,
+      deletedAt: null,
+    });
+  });
+
+  it('starts again from today when it was deleted for longer than a day', async () => {
+    const data = ruleData(groupId, alice.id, {
+      startOn: addDays(today(), -60),
+      frequency: 'weekly',
+    });
+    await push(alice, [upsert('recurring', data)]);
+    await push(alice, [tombstone('delete', 'recurring', data.id, groupId, 1)]);
+    // Left deleted for days (the time is put back by hand: the test can't wait).
+    await db
+      .update(recurringRules)
+      .set({ deletedAt: Date.now() - 3 * 24 * 60 * 60 * 1000 })
+      .where(eq(recurringRules.id, data.id));
+
+    const [restored] = await push(alice, [tombstone('restore', 'recurring', data.id, groupId, 2)]);
+    expect(restored?.status).toBe('applied');
     const row = await ruleRow(data.id);
-    // It does not go back to what it had missed (or to the old date): from today.
+    // It does not go back to dates from before or during the time it was deleted: from today.
     expect((row?.nextDueOn as string) >= today()).toBe(true);
     expect(row?.lastGeneratedOn).toBe(addDays(today(), -1));
-    expect(row?.deletedAt).toBeNull();
   });
 
   it('keeps a paused rule paused through delete and restore', async () => {
