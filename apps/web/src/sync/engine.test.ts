@@ -194,6 +194,73 @@ describe('pushing', () => {
     });
   });
 
+  describe('after the server refuses a change', () => {
+    const rejectAll = (ms: Mutation[]) =>
+      ms.map((m) => ({
+        mutationId: m.mutationId,
+        status: 'rejected' as const,
+        reason: 'invalid_reference' as const,
+      }));
+
+    it('removes a new row the server never accepted, so this device agrees with all the others', async () => {
+      const [id] = await queueExpenses(1);
+      const events: Rejection[][] = [];
+      await engineFor(new FakeApi(rejectAll), { onRejected: (r) => events.push(r) }).trigger();
+
+      expect(await db.expenses.get(id ?? '')).toBeUndefined(); // gone from totals, lists and exports
+      expect(await db.outbox.count()).toBe(0);
+      expect(events[0]?.[0]).toMatchObject({ entityId: id, discarded: true });
+      expect((await getMeta<Rejection[]>(db, 'rejections'))?.[0]?.discarded).toBe(true);
+    });
+
+    it('judges a row once, after everything queued for it was refused', async () => {
+      const data = draft();
+      await saveExpense(db, ME, data);
+      await saveExpense(db, ME, { ...data, note: 'edited before the first sync' });
+      await engineFor(new FakeApi(rejectAll)).trigger();
+      expect(await db.expenses.get(data.id)).toBeUndefined();
+    });
+
+    it('puts a refused edit of an accepted row back to the server’s version', async () => {
+      const server = expenseRow(G, ME, { note: 'what the server has', version: 3, serverSeq: 40 });
+      await db.expenses.put(server);
+      await saveExpense(db, ME, {
+        id: server.id,
+        groupId: G,
+        occurredOn: server.occurredOn,
+        amountMinor: server.amountMinor,
+        categoryId: null,
+        note: 'an edit the server refuses',
+        splitType: 'equal',
+        payers: server.payers,
+        shares: server.shares,
+      });
+      expect((await db.expenses.get(server.id))?.note).toBe('an edit the server refuses');
+
+      const api = new FakeApi(rejectAll, (q) =>
+        q.groupId === G ? emptyPull({ cursor: 40, expenses: [server] }) : emptyPull(),
+      );
+      await engineFor(api).trigger();
+
+      expect((await db.expenses.get(server.id))?.note).toBe('what the server has');
+      expect(api.pulls.some((p) => p.groupId === G)).toBe(true); // re-fetched the group
+      expect(await db.meta.where('key').startsWith('backfill:').count()).toBe(0); // and finished
+    });
+
+    it('brings a row back when a refused delete had hidden it', async () => {
+      const server = expenseRow(G, ME, { version: 2, serverSeq: 12 });
+      await db.expenses.put(server);
+      await deleteExpense(db, ME, server.id);
+      expect((await db.expenses.get(server.id))?.deletedAt).not.toBeNull();
+
+      const api = new FakeApi(rejectAll, (q) =>
+        q.groupId === G ? emptyPull({ cursor: 12, expenses: [server] }) : emptyPull(),
+      );
+      await engineFor(api).trigger();
+      expect((await db.expenses.get(server.id))?.deletedAt).toBeNull();
+    });
+  });
+
   describe('rejections and conflicts', () => {
     it('drops a rejected change, remembers why, and reports it', async () => {
       await queueExpenses(2);

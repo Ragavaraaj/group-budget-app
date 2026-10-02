@@ -19,6 +19,7 @@ type Preview = z.infer<typeof previewSchema> | 'error' | null;
 
 const ACCEPT_ERRORS: Record<string, string> = {
   invite_invalid: 'This invite has expired or been used up. Ask for a new one.',
+  removed: 'The group owner removed you from this group. Ask them to add you back.',
   group_full: 'This group is full.',
   too_many_groups: 'You’re in the maximum number of groups.',
 };

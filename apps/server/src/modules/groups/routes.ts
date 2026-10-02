@@ -14,8 +14,10 @@ import {
   createInvite,
   findMembership,
   previewInvite,
+  reinstateMember,
   removeMember,
   renameGroup,
+  revokeInvites,
 } from './repo';
 
 /**
@@ -73,6 +75,43 @@ export function groupRoutes() {
     return c.json(invite, 201);
   });
 
+  // Ends every open invite link of the group (the owner's "stop the links I sent" button).
+  groups.delete('/:groupId/invites', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    if (!groupId.success) return c.json({ error: 'invalid_request' }, 400);
+
+    const membership = await findMembership(c.get('db'), groupId.data, auth.user.id);
+    if (!membership || membership.removedAt !== null) return c.json({ error: 'not_found' }, 404);
+    if (membership.role !== 'owner' || membership.group.isPersonal) {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+    const revoked = await revokeInvites(c.get('db'), groupId.data, Date.now());
+    return c.json({ revoked });
+  });
+
+  groups.post('/:groupId/members/:userId/reinstate', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    const userId = uuidSchema.safeParse(c.req.param('userId'));
+    if (!groupId.success || !userId.success) return c.json({ error: 'invalid_request' }, 400);
+
+    const result = await reinstateMember(
+      c.get('db'),
+      groupId.data,
+      auth.user.id,
+      userId.data,
+      Date.now(),
+    );
+    if (result.ok) return c.json({ ok: true });
+    const status = { forbidden: 403, not_found: 404, group_full: 409, too_many_groups: 409 }[
+      result.error
+    ];
+    return c.json({ error: result.error }, status as 403 | 404 | 409);
+  });
+
   groups.delete('/:groupId/members/:userId', async (c) => {
     const auth = c.get('auth');
     if (!auth) return c.json({ error: 'unauthorized' }, 401);
@@ -118,7 +157,10 @@ export function inviteRoutes() {
 
     const result = await acceptInvite(c.get('db'), parsed.data.token, auth.user.id, Date.now());
     if (!result.ok) {
-      return c.json({ error: result.error }, result.error === 'invite_invalid' ? 404 : 409);
+      const status = { invite_invalid: 404, removed: 403, group_full: 409, too_many_groups: 409 }[
+        result.error
+      ];
+      return c.json({ error: result.error }, status as 403 | 404 | 409);
     }
     return c.json({ groupId: result.groupId });
   });

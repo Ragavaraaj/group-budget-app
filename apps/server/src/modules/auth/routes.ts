@@ -19,6 +19,7 @@ import {
 } from './cookies';
 import {
   createGoogleClient,
+  devIdentity,
   exchangeGoogleCode,
   GOOGLE_SCOPES,
   identityFromDevCode,
@@ -123,8 +124,8 @@ export function authRoutes() {
 
     let identity: Identity;
     try {
-      const devIdentity = config.devLogin ? identityFromDevCode(code) : null;
-      if (devIdentity) identity = devIdentity;
+      const fromDevCode = config.devLogin ? identityFromDevCode(code) : null;
+      if (fromDevCode) identity = fromDevCode;
       else if (config.google) {
         const google = createGoogleClient(config.google, new URL(c.req.url).origin);
         identity = await exchangeGoogleCode(
@@ -158,7 +159,7 @@ export function authRoutes() {
 
     if (!sameBrowser && stored.attemptHash) {
       const confirmToken = randomToken();
-      await bindAttempt(db, stored.attemptHash, user.id, confirmToken, now);
+      await bindAttempt(db, stored.attemptHash, user.id, confirmToken, stored.inviteToken, now);
       return c.html(confirmPage(confirmToken), 200, { 'Content-Security-Policy': PAGE_CSP });
     }
 
@@ -188,12 +189,16 @@ export function authRoutes() {
 
     const db = c.get('db');
     const now = Date.now();
-    const userId = await redeemAttempt(db, parsed.data.secret, now);
-    if (!userId) return c.json({ status: 'pending' as const });
+    const redeemed = await redeemAttempt(db, parsed.data.secret, now);
+    if (!redeemed) return c.json({ status: 'pending' as const });
 
-    const session = await createSession(db, userId, c.req.header('user-agent'), now);
+    const session = await createSession(db, redeemed.userId, c.req.header('user-agent'), now);
     setSessionCookie(c, session.token, session.expiresAt);
-    return c.json({ status: 'signed_in' as const });
+    // The invite (if the person arrived through one) lets the app open the join page next.
+    return c.json({
+      status: 'signed_in' as const,
+      ...(redeemed.inviteToken ? { invite: redeemed.inviteToken } : {}),
+    });
   });
 
   auth.post('/logout', async (c) => {
@@ -228,13 +233,7 @@ export function authRoutes() {
 
     const db = c.get('db');
     const now = Date.now();
-    const email = parsed.data.email.toLowerCase();
-    const identity: Identity = {
-      sub: `dev:${email}`,
-      email,
-      name: parsed.data.name ?? email.split('@')[0] ?? email,
-      picture: null,
-    };
+    const identity = devIdentity(parsed.data.email, parsed.data.name);
     const existing = await findUserBySub(db, identity.sub);
     const user = existing
       ? await recordLogin(db, existing, identity, now)

@@ -9,7 +9,7 @@ group-budget-app/
 ├─ docs/PLAN.md            (plus one document per topic)
 ├─ packages/
 │  └─ shared/              @budget/shared — pure TS, no I/O
-│     └─ src/              money · dates · ids (UUIDv7) · splits · balances (+ settle-up)
+│     └─ src/              money · dates · ids (UUIDv7) · crypto (token + SHA-256, one copy for both sides) · splits · balances (+ settle-up)
 │                          limits · defaults (default categories)
 │                          schemas/ (zod: entities, sync mutations/pull, API payloads) · index.ts
 ├─ apps/
@@ -37,8 +37,8 @@ group-budget-app/
 │        ├─ main.tsx · App.tsx (routes)
 │        ├─ components/ui/ shadcn components (copied, ours to edit)
 │        ├─ components/    app shell, sync chip, banners, category icons, spinner
-│        ├─ lib/           utils (cn) · api client · format · export · crypto · zod-config.ts
-│        ├─ db/            Dexie schema · repo (local writes + outbox) · apply (pulled rows) · hooks (live queries)
+│        ├─ lib/           utils (cn) · api client · format · export · local-errors · zod-config.ts
+│        ├─ db/            Dexie schema · tables (entity → table) · repo (local writes + outbox) · apply (pulled rows) · hooks (live queries)
 │        ├─ sync/          api · engine (push, pull, backfill, polling)
 │        ├─ auth/          auth context · sync/db provider · attempt-login · storage
 │        ├─ features/      auth · expenses · categories · groups · settings · status

@@ -1,8 +1,8 @@
-import { Crown, LogOut, UserMinus, UserPlus } from 'lucide-react';
+import { Crown, LinkIcon, LogOut, UserCheck, UserMinus, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { useEngine, useMe } from '@/auth/sync-context';
+import { useDb, useEngine, useMe } from '@/auth/sync-context';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +35,7 @@ type Pending = { member: LocalMember; leaving: boolean } | null;
 /** Who is in the group; the owner can invite and remove, anyone else can leave. */
 export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabProps) {
   const { user } = useMe();
+  const db = useDb();
   const engine = useEngine();
   const navigate = useNavigate();
   const [inviting, setInviting] = useState(false);
@@ -49,6 +50,18 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
     const { member, leaving } = pending;
     setPending(null);
     try {
+      if (leaving) {
+        // Leaving deletes this group's data from the device, along with anything not yet sent.
+        // Send what is waiting first, and don't leave while some of it can't be sent.
+        await engine.trigger();
+        const waiting = await db.outbox.filter((entry) => entry.groupId === groupId).count();
+        if (waiting > 0) {
+          toast.error(
+            `${waiting} change${waiting === 1 ? '' : 's'} in this group ${waiting === 1 ? 'hasn’t' : 'haven’t'} been sent yet. Connect to the internet, wait for “Synced”, then leave.`,
+          );
+          return;
+        }
+      }
       await apiCall('DELETE', `/api/groups/${groupId}/members/${member.userId}`);
       if (leaving) {
         toast.success(`You left “${groupName}”`);
@@ -62,12 +75,36 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
     }
   };
 
+  const revokeLinks = async () => {
+    try {
+      await apiCall('DELETE', `/api/groups/${groupId}/invites`);
+      toast.success('Invite links stopped. Make a new one whenever you need it.');
+    } catch (error) {
+      toast.error(explainGroupError(error));
+    }
+  };
+
+  const addBack = async (member: LocalMember) => {
+    try {
+      await apiCall('POST', `/api/groups/${groupId}/members/${member.userId}/reinstate`);
+      toast.success(`${member.displayName} is back in the group`);
+      void engine.trigger();
+    } catch (error) {
+      toast.error(explainGroupError(error));
+    }
+  };
+
   return (
     <div className="space-y-4">
       {isOwner ? (
-        <Button className="w-full" onClick={() => setInviting(true)}>
-          <UserPlus /> Invite people
-        </Button>
+        <div className="flex gap-2">
+          <Button className="flex-1" onClick={() => setInviting(true)}>
+            <UserPlus /> Invite people
+          </Button>
+          <Button variant="outline" onClick={() => void revokeLinks()}>
+            <LinkIcon /> Stop links
+          </Button>
+        </div>
       ) : null}
 
       <ul className="divide-y rounded-lg border">
@@ -105,10 +142,23 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
       </ul>
 
       {former.length > 0 ? (
-        <p className="text-muted-foreground text-sm">
-          Left the group: {former.map((m) => m.displayName).join(', ')}. Their past expenses stay in
-          the balances.
-        </p>
+        <div className="space-y-2">
+          <p className="text-muted-foreground text-sm">
+            No longer in the group. Their past expenses stay in the balances.
+          </p>
+          <ul className="divide-y rounded-lg border">
+            {former.map((member) => (
+              <li key={member.userId} className="flex items-center gap-3 p-3 text-sm">
+                <span className="min-w-0 flex-1 truncate">{member.displayName}</span>
+                {isOwner ? (
+                  <Button variant="outline" size="sm" onClick={() => void addBack(member)}>
+                    <UserCheck /> Add back
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {!isOwner ? (
@@ -141,7 +191,7 @@ export function MembersTab({ groupId, groupName, members, isOwner }: MembersTabP
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.leaving
-                ? 'The group’s data is removed from this device. Expenses you were part of stay in the group’s balances.'
+                ? 'Anything not yet sent is sent first. Then the group’s data is removed from this device; expenses you were part of stay in the group’s balances.'
                 : 'They will no longer see or add expenses. Expenses they were part of stay in the balances.'}
             </AlertDialogDescription>
           </AlertDialogHeader>

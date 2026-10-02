@@ -27,6 +27,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useCategories, useExpense, useGroups, useMembers } from '@/db/hooks';
 import { deleteExpense, restoreExpense, saveExpense } from '@/db/repo';
 import type { LocalExpense } from '@/db/types';
+import { tryLocal } from '@/lib/local-errors';
 import { cn } from '@/lib/utils';
 import { draftFromExpense, newDraft, resolveSplit, type SplitDraft } from './split-draft';
 import { SplitSection } from './split-section';
@@ -172,7 +173,10 @@ function ExpenseForm({ existing, groupId }: ExpenseFormProps) {
       return;
     }
     setSaving(true);
-    await saveExpense(db, me.user.id, check.data);
+    // If the browser refuses the write, stay here with everything typed so the person can retry.
+    const saved = await tryLocal(() => saveExpense(db, me.user.id, check.data));
+    setSaving(false);
+    if (!saved) return;
     rememberCategory(groupId, categoryId);
     toast.success(existing ? 'Expense updated' : 'Expense added');
     back();
@@ -180,9 +184,12 @@ function ExpenseForm({ existing, groupId }: ExpenseFormProps) {
 
   const remove = async () => {
     if (!existing) return;
-    await deleteExpense(db, me.user.id, existing.id);
+    if (!(await tryLocal(() => deleteExpense(db, me.user.id, existing.id)))) return;
     toast('Expense deleted', {
-      action: { label: 'Undo', onClick: () => void restoreExpense(db, me.user.id, existing.id) },
+      action: {
+        label: 'Undo',
+        onClick: () => void tryLocal(() => restoreExpense(db, me.user.id, existing.id)),
+      },
     });
     back();
   };

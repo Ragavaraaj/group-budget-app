@@ -9,6 +9,7 @@ import { personName } from '@/db/hooks';
 import { deleteSettlement, restoreSettlement } from '@/db/repo';
 import type { LocalMember, LocalSettlement } from '@/db/types';
 import { formatDay } from '@/lib/format';
+import { tryLocal } from '@/lib/local-errors';
 import { cn } from '@/lib/utils';
 import type { GroupMoney } from './derive';
 import { orderMembers } from './derive';
@@ -168,12 +169,12 @@ export function BalancesTab({ groupId, members, money, settlements }: BalancesTa
                     variant="ghost"
                     size="icon"
                     aria-label="Delete payment"
-                    onClick={() => {
-                      void deleteSettlement(db, user.id, s.id);
+                    onClick={async () => {
+                      if (!(await tryLocal(() => deleteSettlement(db, user.id, s.id)))) return;
                       toast('Payment deleted', {
                         action: {
                           label: 'Undo',
-                          onClick: () => void restoreSettlement(db, user.id, s.id),
+                          onClick: () => void tryLocal(() => restoreSettlement(db, user.id, s.id)),
                         },
                       });
                     }}

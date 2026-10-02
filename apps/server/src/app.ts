@@ -69,7 +69,10 @@ export function createApp() {
   app.notFound((c) => c.json({ error: 'not_found' }, 404));
 
   app.onError((error, c) => {
-    c.get('logger').error({ err: error, path: c.req.path }, 'unhandled error');
+    // The logger is set by the first middleware, which is also what throws on invalid
+    // configuration; in that case there is no logger yet, so fall back to a plain one.
+    const logger = (c.get('logger') as Logger | undefined) ?? createLogger('error');
+    logger.error({ err: error, path: c.req.path }, 'unhandled error');
     return c.json({ error: 'internal_error' }, 500);
   });
 

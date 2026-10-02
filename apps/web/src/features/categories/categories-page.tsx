@@ -16,6 +16,7 @@ import {
 import { useCategories, useGroups } from '@/db/hooks';
 import { deleteCategory, saveCategory } from '@/db/repo';
 import type { LocalCategory } from '@/db/types';
+import { tryLocal } from '@/lib/local-errors';
 import { CategoryDialog } from './category-dialog';
 
 /** `/settings/categories`: each group (and the personal ledger) has its own categories. */
@@ -87,14 +88,16 @@ export function CategoriesPage() {
                   : 'Hide from the list, keep on old expenses'
               }
               onClick={() =>
-                void saveCategory(db, user.id, {
-                  id: category.id,
-                  groupId: category.groupId,
-                  name: category.name,
-                  icon: category.icon,
-                  color: category.color,
-                  archived: !category.archived,
-                })
+                void tryLocal(() =>
+                  saveCategory(db, user.id, {
+                    id: category.id,
+                    groupId: category.groupId,
+                    name: category.name,
+                    icon: category.icon,
+                    color: category.color,
+                    archived: !category.archived,
+                  }),
+                )
               }
             >
               {category.archived ? <ArchiveRestore /> : <Archive />}
@@ -103,8 +106,8 @@ export function CategoriesPage() {
               variant="ghost"
               size="icon"
               aria-label={`Delete ${category.name}`}
-              onClick={() => {
-                void deleteCategory(db, user.id, category.id);
+              onClick={async () => {
+                if (!(await tryLocal(() => deleteCategory(db, user.id, category.id)))) return;
                 toast(`Deleted “${category.name}”`, {
                   description: 'Existing expenses keep their category name.',
                 });

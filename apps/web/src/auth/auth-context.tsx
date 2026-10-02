@@ -109,8 +109,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tryRedeem = async () => {
       if (stopped || document.visibilityState !== 'visible') return;
       if (!hasPendingAttempt()) return setWatching(false); // cancelled, or past its time window
-      if (await redeemAttempt()) {
+      const redeemed = await redeemAttempt();
+      if (redeemed.signedIn) {
         setWatching(false);
+        // Arrived through an invite link: carry on to the join page (a full load, so the new
+        // session cookie is in place), instead of dropping the person on an empty ledger.
+        if (redeemed.invite) {
+          window.location.assign(`/join/${encodeURIComponent(redeemed.invite)}`);
+          return;
+        }
         await refresh();
       }
     };

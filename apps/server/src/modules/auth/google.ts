@@ -91,10 +91,20 @@ export async function exchangeGoogleCode(
   return identityFromIdToken(idToken, clientId, now);
 }
 
-/** Dev sign-in: the "code" is `dev:<email>`. Only reachable when `config.devLogin` is on. */
+/** The identity of a dev sign-in. Only built when `config.devLogin` is on. */
+export function devIdentity(email: string, name?: string): Identity {
+  const normalised = email.trim().toLowerCase();
+  return {
+    sub: `dev:${normalised}`,
+    email: normalised,
+    name: name?.trim() || normalised.split('@')[0] || normalised,
+    picture: null,
+  };
+}
+
+/** Dev sign-in through the stand-in page: the "code" is `dev:<email>`. */
 export function identityFromDevCode(code: string): Identity | null {
   if (!code.startsWith('dev:')) return null;
-  const email = code.slice(4).trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+$/.test(email)) return null;
-  return { sub: `dev:${email}`, email, name: email.split('@')[0] ?? email, picture: null };
+  const email = code.slice(4).trim();
+  return /^[^@\s]+@[^@\s]+$/.test(email) ? devIdentity(email) : null;
 }

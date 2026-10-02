@@ -30,6 +30,11 @@ export const memberships = sqliteTable(
     joinedAt: integer('joined_at').notNull(),
     /** Set when the person left or was removed. Kept so the change reaches their devices. */
     removedAt: integer('removed_at'),
+    /**
+     * Who ended the membership: the person themselves (they left) or the owner (they were
+     * removed). Someone the owner removed cannot come back through an invite link.
+     */
+    removedBy: text('removed_by').references(() => users.id),
     serverSeq: integer('server_seq').notNull(),
   },
   (table) => [

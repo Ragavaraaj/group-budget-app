@@ -191,3 +191,87 @@ test('an expired or made-up invite is refused', async ({ page }) => {
   await page.goto('/join/not-a-real-invite-token-0123456789');
   await expect(page.getByText(/expired or been used up/)).toBeVisible();
 });
+
+test('someone the owner removed cannot rejoin through a link, until the owner adds them back', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Club');
+  const link = await inviteLink(page);
+
+  const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
+  await join(bob.page, link);
+  await expect(bob.page.getByRole('heading', { name: 'Club' })).toBeVisible();
+
+  await page.reload(); // Alice's device learns that Bob joined
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Remove Bob' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByText('Bob was removed')).toBeVisible();
+
+  // The link he already has no longer works for him.
+  await bob.page.goto(new URL(link).pathname);
+  await expect(bob.page.getByText(/invited you to/)).toBeVisible();
+  await bob.page.getByRole('button', { name: 'Join group' }).click();
+  await expect(bob.page.getByRole('alert')).toContainText('owner removed you');
+
+  // The owner can bring him back directly.
+  await expect(page.getByRole('button', { name: 'Add back' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add back' }).click();
+  await expect(page.getByText('Bob is back in the group')).toBeVisible();
+
+  await bob.page.goto('/groups');
+  await expect(bob.page.getByRole('link', { name: /Club/ })).toBeVisible({ timeout: 15_000 });
+  await bob.context.close();
+});
+
+test('the owner can stop the invite links that are out there', async ({ page, browser }) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Private');
+  const link = await inviteLink(page);
+
+  await page.getByRole('button', { name: 'Stop links' }).click();
+  await expect(page.getByText('Invite links stopped')).toBeVisible();
+
+  const stranger = await newPerson(browser, uniqueEmail('late'), 'Late');
+  await stranger.page.goto(new URL(link).pathname);
+  await expect(stranger.page.getByText(/expired or been used up/)).toBeVisible();
+  await stranger.context.close();
+});
+
+test('leaving a group is held back while changes in it have not been sent', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, 'Weekend away');
+  const link = await inviteLink(page);
+
+  const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
+  await join(bob.page, link);
+  await expect(bob.page.getByRole('heading', { name: 'Weekend away' })).toBeVisible();
+
+  // Bob adds an expense with no connection, so it sits in his outbox.
+  await bob.context.setOffline(true);
+  await addGroupExpense(bob.page, '250', 'Tickets');
+  await save(bob.page);
+
+  await openGroupTab(bob.page, 'Members');
+  await bob.page.getByRole('button', { name: 'Leave group' }).click();
+  await bob.page.getByRole('alertdialog').getByRole('button', { name: 'Leave' }).click();
+  await expect(bob.page.getByText(/hasn’t been sent yet/)).toBeVisible();
+  await expect(bob.page.getByRole('button', { name: 'Leave group' })).toBeVisible(); // still in
+
+  // Once it has been sent, leaving works.
+  await bob.context.setOffline(false);
+  await bob.page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(bob.page.getByRole('status').filter({ hasText: /^Synced$/ })).toBeVisible();
+  await bob.page.getByRole('button', { name: 'Leave group' }).click();
+  await bob.page.getByRole('alertdialog').getByRole('button', { name: 'Leave' }).click();
+  await expect(bob.page).toHaveURL(/\/groups$/);
+  await bob.context.close();
+});

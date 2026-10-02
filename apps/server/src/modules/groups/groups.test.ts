@@ -12,6 +12,7 @@ import {
   signedIn,
 } from '../../../test/sync-helpers';
 import { groups, invites, memberships } from '../../db/schema';
+import { joinGuarded } from './repo';
 
 let alice: Person;
 let bob: Person;
@@ -251,14 +252,169 @@ describe('removing and leaving', () => {
     expect((await remove(bob, groupId, alice.id)).status).toBe(404); // bob isn't a member
   });
 
-  it('lets someone rejoin with a fresh invite', async () => {
+  it('lets someone who left rejoin with a fresh invite', async () => {
     const groupId = await createSharedGroup(alice);
     await join(bob, (await makeInvite(alice, groupId)).token);
-    await remove(alice, groupId, bob.id);
+    await remove(bob, groupId, bob.id); // bob leaves of his own accord
     expect((await join(bob, (await makeInvite(alice, groupId)).token)).status).toBe(200);
     const all = await pullAll(bob);
     expect(
       all.members.find((m) => m.groupId === groupId && m.userId === bob.id)?.removedAt,
     ).toBeNull();
+  });
+
+  it('does not let someone the owner removed back in through an invite link', async () => {
+    const groupId = await createSharedGroup(alice);
+    const { token } = await makeInvite(alice, groupId);
+    await join(bob, token);
+    await remove(alice, groupId, bob.id);
+
+    // The link he already has, and a brand new one: neither undoes the removal.
+    for (const link of [token, (await makeInvite(alice, groupId)).token]) {
+      const response = await join(bob, link);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: 'removed' });
+    }
+    expect((await pull(bob, { groupId })).status).toBe(403);
+  });
+});
+
+describe('reinstating', () => {
+  it('lets the owner bring a removed person back directly', async () => {
+    const groupId = await createSharedGroup(alice);
+    await join(bob, (await makeInvite(alice, groupId)).token);
+    await remove(alice, groupId, bob.id);
+
+    const response = await alice.client.post(`/api/groups/${groupId}/members/${bob.id}/reinstate`);
+    expect(response.status).toBe(200);
+    const all = await pullAll(bob);
+    expect(
+      all.members.find((m) => m.groupId === groupId && m.userId === bob.id)?.removedAt,
+    ).toBeNull();
+    expect((await pull(bob, { groupId })).status).toBe(200);
+  });
+
+  it('is for the owner only, and only for someone who was removed', async () => {
+    const groupId = await createSharedGroup(alice);
+    const carol = await signedIn('carol@example.com', 'Carol');
+    const { token } = await makeInvite(alice, groupId);
+    await join(bob, token);
+    await join(carol, token);
+    await remove(alice, groupId, carol.id);
+
+    const reinstate = (by: Person, who: Person) =>
+      by.client.post(`/api/groups/${groupId}/members/${who.id}/reinstate`);
+    expect((await reinstate(bob, carol)).status).toBe(403); // not the owner
+    expect((await reinstate(alice, bob)).status).toBe(404); // bob was never removed
+    expect((await reinstate(alice, carol)).status).toBe(200);
+  });
+});
+
+describe('revoking invite links', () => {
+  it('stops every open link, for the owner only', async () => {
+    const groupId = await createSharedGroup(alice);
+    const first = await makeInvite(alice, groupId);
+    const second = await makeInvite(alice, groupId);
+    await join(bob, first.token);
+    const carol = await signedIn('carol@example.com', 'Carol');
+
+    expect(
+      (await bob.client.request(`/api/groups/${groupId}/invites`, { method: 'DELETE' })).status,
+    ).toBe(403);
+    const response = await alice.client.request(`/api/groups/${groupId}/invites`, {
+      method: 'DELETE',
+    });
+    expect(await response.json()).toEqual({ revoked: 2 });
+
+    expect((await join(carol, second.token)).status).toBe(404);
+    expect(
+      await (await new Client().get(`/api/invites/preview?token=${second.token}`)).json(),
+    ).toEqual({ valid: false });
+    // Links made afterwards work again.
+    expect((await join(carol, (await makeInvite(alice, groupId)).token)).status).toBe(200);
+  });
+});
+
+describe('the guarded join (two people racing for the last place)', () => {
+  const tokenOf = async (groupId: string) => {
+    const { token } = await makeInvite(alice, groupId);
+    const [row] = await db
+      .select()
+      .from(invites)
+      .where(eq(invites.tokenHash, await sha256Hex(token)));
+    return { token, invite: { id: row?.id ?? '', groupId } };
+  };
+
+  it('uses an invite with one use left for exactly one of two simultaneous joiners', async () => {
+    const groupId = await createSharedGroup(alice);
+    const { invite } = await tokenOf(groupId);
+    await db.update(invites).set({ maxUses: 1 }).where(eq(invites.id, invite.id));
+    const carol = await signedIn('carol@example.com', 'Carol');
+
+    // Both have passed their checks; only the writes race.
+    await Promise.all([
+      joinGuarded(db, invite, bob.id, Date.now()),
+      joinGuarded(db, invite, carol.id, Date.now()),
+    ]);
+
+    const active = await db.select().from(memberships).where(eq(memberships.groupId, groupId));
+    expect(active.filter((m) => m.removedAt === null)).toHaveLength(2); // the owner and one newcomer
+    const [row] = await db.select().from(invites).where(eq(invites.id, invite.id));
+    expect(row?.usedCount).toBe(1);
+  });
+
+  it('never takes a group past its member limit', async () => {
+    const groupId = await createSharedGroup(alice);
+    const { invite } = await tokenOf(groupId);
+    const { users } = await import('../../db/schema');
+    const filler = Array.from({ length: MAX_GROUP_MEMBERS - 2 }, (_, n) => ({ id: uuidv7(), n }));
+    for (let i = 0; i < filler.length; i += 10) {
+      const chunk = filler.slice(i, i + 10);
+      await db.batch([
+        db.insert(users).values(
+          chunk.map(({ id, n }) => ({
+            id,
+            googleSub: `f-${n}`,
+            email: `f${n}@example.com`,
+            displayName: `F${n}`,
+            createdAt: new Date(),
+            lastLoginAt: new Date(),
+          })),
+        ),
+        db.insert(memberships).values(
+          chunk.map(({ id, n }) => ({
+            groupId,
+            userId: id,
+            role: 'member' as const,
+            joinedAt: 1,
+            removedAt: null,
+            serverSeq: 2000 + n,
+          })),
+        ),
+      ]);
+    }
+    // Owner + 48 fillers = 49 members: one place left, two people want it.
+    const carol = await signedIn('carol@example.com', 'Carol');
+    await Promise.all([
+      joinGuarded(db, invite, bob.id, Date.now()),
+      joinGuarded(db, invite, carol.id, Date.now()),
+    ]);
+
+    const members = await db.select().from(memberships).where(eq(memberships.groupId, groupId));
+    expect(members.filter((m) => m.removedAt === null)).toHaveLength(MAX_GROUP_MEMBERS);
+  });
+
+  it('refuses an expired or revoked invite even if the earlier checks were passed', async () => {
+    const groupId = await createSharedGroup(alice);
+    const { invite } = await tokenOf(groupId);
+    await db.update(invites).set({ revokedAt: Date.now() }).where(eq(invites.id, invite.id));
+    await joinGuarded(db, invite, bob.id, Date.now());
+    const mine = await db
+      .select()
+      .from(memberships)
+      .where(and(eq(memberships.groupId, groupId), eq(memberships.userId, bob.id)));
+    expect(mine).toHaveLength(0);
+    const [row] = await db.select().from(invites).where(eq(invites.id, invite.id));
+    expect(row?.usedCount).toBe(0);
   });
 });

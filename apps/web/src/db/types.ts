@@ -52,6 +52,8 @@ export interface Rejection {
   entityId: string;
   op: OutboxEntry['op'];
   reason: string;
+  /** True when the change was a new row the server never accepted, so it was removed from this device. */
+  discarded?: boolean;
 }
 
 export interface MetaRow {

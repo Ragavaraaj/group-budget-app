@@ -1,6 +1,7 @@
-import type { PullResponse } from '@budget/shared';
+import { ENTITY_NAMES, type EntityName, type PullResponse } from '@budget/shared';
 import type { Table } from 'dexie';
 import { type BudgetDb, getMeta, setMeta } from './database';
+import { entityTables } from './tables';
 import { entityKey, type SyncedRow } from './types';
 
 export interface ApplyOptions {
@@ -81,20 +82,20 @@ export function applyPull(
 
     let applied = 0;
     const put = async <T extends { serverSeq: number }>(
-      table: Table<T, never>,
+      table: Table<T, string>,
       rows: T[],
       idOf: (row: T) => string,
       skip: (row: T) => boolean = () => false,
     ) => {
       const incoming = rows.filter((row) => !skip(row));
-      const existing = await (table as unknown as Table<T, string>).bulkGet(incoming.map(idOf));
+      const existing = await table.bulkGet(incoming.map(idOf));
       const fresh = incoming.filter((row, i) => (existing[i]?.serverSeq ?? -1) <= row.serverSeq);
-      await (table as unknown as Table<T, string>).bulkPut(fresh);
+      await table.bulkPut(fresh);
       applied += fresh.length;
     };
 
     await put(
-      db.groups as never,
+      db.groups,
       response.groups.filter((g) => !removed.has(g.id)),
       (g) => g.id,
     );
@@ -106,16 +107,21 @@ export function applyPull(
       applied += fresh.length;
     })();
 
-    const synced = <T extends SyncedRow>(entity: 'category' | 'expense' | 'settlement') => ({
-      idOf: (row: T) => row.id,
-      skip: (row: T) => removed.has(row.groupId) || pending.has(entityKey(entity, row.id)),
-    });
-    const cat = synced('category');
-    const exp = synced('expense');
-    const set = synced('settlement');
-    await put(db.categories as never, response.categories, cat.idOf, cat.skip);
-    await put(db.expenses as never, response.expenses, exp.idOf, exp.skip);
-    await put(db.settlements as never, response.settlements, set.idOf, set.skip);
+    // The synced entities all behave the same way; the table map is the only per-entity detail.
+    const tables = entityTables(db);
+    const incoming: Record<EntityName, SyncedRow[]> = {
+      category: response.categories,
+      expense: response.expenses,
+      settlement: response.settlements,
+    };
+    for (const entity of ENTITY_NAMES) {
+      await put(
+        tables[entity],
+        incoming[entity],
+        (row) => row.id,
+        (row) => removed.has(row.groupId) || pending.has(entityKey(entity, row.id)),
+      );
+    }
 
     if (options.updateCursor) {
       const current = (await getMeta<number>(db, 'cursor')) ?? 0;

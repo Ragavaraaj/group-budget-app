@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { saveSettlement } from '@/db/repo';
 import type { LocalMember } from '@/db/types';
+import { tryLocal } from '@/lib/local-errors';
 
 export interface SettleDefaults {
   from: string;
@@ -97,15 +98,18 @@ function SettleForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (!valid || amount === null) return;
-        void saveSettlement(db, user.id, {
-          id: uuidv7(),
-          groupId,
-          fromUser: from,
-          toUser: to,
-          amountMinor: amount,
-          occurredOn: toLocalDate(),
-          note: '',
-        }).then(() => {
+        void tryLocal(() =>
+          saveSettlement(db, user.id, {
+            id: uuidv7(),
+            groupId,
+            fromUser: from,
+            toUser: to,
+            amountMinor: amount,
+            occurredOn: toLocalDate(),
+            note: '',
+          }),
+        ).then((saved) => {
+          if (!saved) return;
           toast.success(`Recorded: ${name(from)} paid ${name(to)}`);
           onDone();
         });

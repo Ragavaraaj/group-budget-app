@@ -57,12 +57,20 @@ export async function pushMutations(
   try {
     return await attempt(db, userId, mutations, now);
   } catch (error) {
-    // The only expected failure is the same mutation arriving twice at once: the second batch
-    // violates the primary key on processed_mutations and rolls back. Re-reading finds it
-    // processed. Anything else fails again and surfaces.
-    void error;
+    // The one failure worth retrying is the same mutation arriving twice at once: the second
+    // batch violates the primary key on processed_mutations and rolls back whole, and a second
+    // pass finds it already processed. Everything else (a transient D1 error, a constraint) is
+    // rethrown as it is: retrying would repeat the same ~40 queries, and on the free plan's
+    // 50-per-invocation cap hide the real error behind a quota one.
+    if (!isDuplicateMutation(error)) throw error;
     return attempt(db, userId, mutations, now);
   }
+}
+
+/** Drizzle wraps the driver's error; SQLite's message (naming the table) is on `cause`. */
+export function isDuplicateMutation(error: unknown): boolean {
+  const text = `${error} ${(error as { cause?: unknown } | null)?.cause ?? ''}`;
+  return /UNIQUE constraint failed: processed_mutations\./i.test(text);
 }
 
 async function attempt(

@@ -2,6 +2,7 @@ import { MAX_MUTATIONS_PER_PUSH, type Mutation, type MutationResult } from '@bud
 import { applyPull, BACKFILL_PREFIX } from '@/db/apply';
 import { type BudgetDb, getMeta, setMeta } from '@/db/database';
 import { onLocalWrite } from '@/db/repo';
+import { tableFor } from '@/db/tables';
 import { entityKey, type OutboxEntry, type Rejection } from '@/db/types';
 import { ApiError, NetworkError } from '@/lib/api';
 import type { SyncApi } from './api';
@@ -256,13 +257,21 @@ export class SyncEngine {
           if (!result || entry.seq === undefined) continue; // no answer: try again next time
           await this.db.outbox.delete(entry.seq);
 
+          const table = tableFor(this.db, entry.entity);
+          const stillQueued = await this.db.outbox
+            .where('entityKey')
+            .equals(entityKey(entry.entity, entry.entityId))
+            .count();
+
           if (result.status === 'rejected') {
+            const discarded = await this.undoRejected(entry, table, stillQueued);
             rejections.push({
               at: Date.now(),
               entity: entry.entity,
               entityId: entry.entityId,
               op: entry.op,
               reason: result.reason ?? 'rejected',
+              discarded,
             });
             continue;
           }
@@ -270,20 +279,8 @@ export class SyncEngine {
 
           // Remember the version the server gave this row, unless newer edits are already queued
           // (they carry their own base version).
-          if (result.version !== undefined) {
-            const stillQueued = await this.db.outbox
-              .where('entityKey')
-              .equals(entityKey(entry.entity, entry.entityId))
-              .count();
-            if (stillQueued === 0) {
-              const table =
-                entry.entity === 'category'
-                  ? this.db.categories
-                  : entry.entity === 'expense'
-                    ? this.db.expenses
-                    : this.db.settlements;
-              await table.update(entry.entityId, { version: result.version });
-            }
+          if (result.version !== undefined && stillQueued === 0) {
+            await table.update(entry.entityId, { version: result.version });
           }
         }
         if (rejections.length > 0) {
@@ -299,6 +296,30 @@ export class SyncEngine {
 
     if (conflicts > 0) this.events.onConflicts?.(conflicts);
     if (rejections.length > 0) this.events.onRejected?.(rejections);
+  }
+
+  /**
+   * The server refused a change, so the device must stop showing something the server (and every
+   * other device) doesn't have. A row the server never accepted is removed; a row it does hold
+   * goes back to the server's version, by re-fetching the group (the next steps of this cycle).
+   * Returns true when the row was removed. While later changes to the same row are still queued
+   * they are judged on their own turn.
+   */
+  private async undoRejected(
+    entry: OutboxEntry,
+    table: ReturnType<typeof tableFor>,
+    stillQueued: number,
+  ): Promise<boolean> {
+    if (stillQueued > 0) return false;
+    const row = await table.get(entry.entityId);
+    if (!row) return false;
+    if (row.version === 0) {
+      await table.delete(entry.entityId); // never reached the server: it exists nowhere else
+      return true;
+    }
+    const key = `${BACKFILL_PREFIX}${entry.groupId}`;
+    if ((await getMeta<number>(this.db, key)) === undefined) await setMeta(this.db, key, 0);
+    return false;
   }
 
   // --- pulling ------------------------------------------------------------------------------

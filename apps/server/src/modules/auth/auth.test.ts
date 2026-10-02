@@ -9,7 +9,16 @@ import {
   resetDb,
   sha256Hex,
 } from '../../../test/helpers';
-import { categories, groups, invites, memberships, sessions, users } from '../../db/schema';
+import {
+  categories,
+  groups,
+  invites,
+  memberships,
+  oauthStates,
+  sessions,
+  users,
+} from '../../db/schema';
+import { saveOauthState } from './repo';
 
 beforeEach(resetDb);
 afterEach(() => vi.restoreAllMocks());
@@ -503,6 +512,107 @@ describe('attempt-login (installed app on iOS)', () => {
       400,
     );
     expect((await new Client().post('/api/auth/attempt/redeem', {})).status).toBe(400);
+  });
+});
+
+describe('opening an invite from the installed app', () => {
+  const secret = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
+
+  it('carries the invite through the hand-off, so the app can open the join page', async () => {
+    const owner = new Client();
+    const { user } = await owner.signInAsDev('host@example.com');
+    const [group] = await db.select().from(groups).where(eq(groups.createdBy, user.id));
+    const token = 'handoff-invite-0123456789abcdef';
+    await db.insert(invites).values({
+      id: crypto.randomUUID(),
+      tokenHash: await sha256Hex(token),
+      groupId: group?.id ?? '',
+      createdBy: user.id,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 86_400_000,
+      maxUses: 5,
+    });
+
+    // A brand-new person (allowed only by the invite) signs in from the installed app, and the
+    // browser iOS opens completes it.
+    const app = new Client();
+    const attemptHash = await sha256Hex(secret);
+    const start = await app.get(`/api/auth/google/start?attempt=${attemptHash}&invite=${token}`);
+    const state = location(start).searchParams.get('state') ?? '';
+    const browser = new Client();
+    mockGoogleToken(
+      vi,
+      fakeIdToken({ sub: 'newcomer-sub', email: 'newcomer@example.com', name: 'New Comer' }),
+    );
+    const callback = await browser.get(`/api/auth/google/callback?code=abc&state=${state}`);
+    const html = await callback.text();
+    await browser.request('/api/auth/attempt/confirm', {
+      method: 'POST',
+      body: new URLSearchParams({ token: /name="token" value="([^"]+)"/.exec(html)?.[1] ?? '' }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+
+    const redeem = await app.post('/api/auth/attempt/redeem', { secret });
+    expect(await redeem.json()).toEqual({ status: 'signed_in', invite: token });
+    expect(app.cookies.has('gb_session')).toBe(true);
+  });
+
+  it('adds nothing when the person did not arrive through an invite', async () => {
+    const app = new Client();
+    const start = await app.get(`/api/auth/google/start?attempt=${await sha256Hex(secret)}`);
+    const browser = new Client();
+    mockGoogleToken(vi, fakeIdToken({}));
+    const callback = await browser.get(
+      `/api/auth/google/callback?code=abc&state=${location(start).searchParams.get('state')}`,
+    );
+    await browser.request('/api/auth/attempt/confirm', {
+      method: 'POST',
+      body: new URLSearchParams({
+        token: /name="token" value="([^"]+)"/.exec(await callback.text())?.[1] ?? '',
+      }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+    expect(await (await app.post('/api/auth/attempt/redeem', { secret })).json()).toEqual({
+      status: 'signed_in',
+    });
+  });
+});
+
+describe('the cost of an open endpoint', () => {
+  it('writes exactly one row when a sign-in starts', async () => {
+    const before = await db.select().from(oauthStates);
+    await new Client().get('/api/auth/google/start');
+    expect((await db.select().from(oauthStates)).length - before.length).toBe(1);
+  });
+
+  it('sweeps expired sign-in states when one completes, and when asked at start', async () => {
+    const expired = (hash: string) => ({
+      stateHash: hash,
+      codeVerifier: 'v',
+      createdAt: 1,
+      expiresAt: 2,
+    });
+    await db.insert(oauthStates).values([expired('old-1'), expired('old-2')]);
+
+    // Completing a sign-in cleans up.
+    const client = new Client();
+    const state =
+      location(await client.get('/api/auth/google/start')).searchParams.get('state') ?? '';
+    mockGoogleToken(vi, fakeIdToken({}));
+    await client.get(`/api/auth/google/callback?code=abc&state=${state}`);
+    expect(await db.select().from(oauthStates)).toEqual([]);
+
+    // Starting one with the sweep switched on cleans up too.
+    await db.insert(oauthStates).values(expired('old-3'));
+    await saveOauthState(
+      db,
+      'fresh-state',
+      { codeVerifier: 'v', attemptHash: null, inviteToken: null },
+      Date.now(),
+      60_000,
+      true,
+    );
+    expect((await db.select().from(oauthStates)).map((r) => r.stateHash)).toHaveLength(1);
   });
 });
 

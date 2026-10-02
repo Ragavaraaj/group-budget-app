@@ -98,6 +98,7 @@ export async function findMembership(db: Db, groupId: string, userId: string) {
       group: groups,
       role: memberships.role,
       removedAt: memberships.removedAt,
+      removedBy: memberships.removedBy,
     })
     .from(memberships)
     .innerJoin(groups, eq(groups.id, memberships.groupId))
@@ -206,22 +207,75 @@ export async function previewInvite(db: Db, token: string, now: number) {
   return row ?? null;
 }
 
+/**
+ * The guarded write behind `acceptInvite`: uses the invite up and adds the membership only if
+ * the invite still has uses left and the group and the person are under their limits, all in
+ * one batch. Exported so tests can race it without the reads in front. Whether it took effect
+ * is for the caller to check by looking at the membership afterwards.
+ */
+export async function joinGuarded(
+  db: Db,
+  invite: { id: string; groupId: string },
+  userId: string,
+  now: number,
+): Promise<void> {
+  // Raw statements: Drizzle's D1 batch only takes its own query builders, and the second
+  // statement needs `INSERT ... SELECT ... WHERE changes() > 0`, which they can't express.
+  const d1 = db.$client;
+  await d1.batch([
+    d1.prepare('UPDATE sync_counter SET value = value + 1 WHERE id = 1'),
+    d1
+      .prepare(
+        `UPDATE invites SET used_count = used_count + 1
+         WHERE id = ?1
+           AND revoked_at IS NULL
+           AND expires_at > ?2
+           AND used_count < max_uses
+           AND (SELECT COUNT(*) FROM memberships WHERE group_id = ?3 AND removed_at IS NULL) < ?4
+           AND (SELECT COUNT(*) FROM memberships WHERE user_id = ?5 AND removed_at IS NULL) < ?6`,
+      )
+      .bind(invite.id, now, invite.groupId, MAX_GROUP_MEMBERS, userId, MAX_GROUPS_PER_USER),
+    d1
+      .prepare(
+        `INSERT INTO memberships (group_id, user_id, role, joined_at, removed_at, removed_by, server_seq)
+         SELECT ?1, ?2, 'member', ?3, NULL, NULL, (SELECT value FROM sync_counter WHERE id = 1)
+         WHERE changes() > 0
+         ON CONFLICT (group_id, user_id) DO UPDATE SET
+           removed_at = NULL, removed_by = NULL,
+           joined_at = excluded.joined_at, server_seq = excluded.server_seq`,
+      )
+      .bind(invite.groupId, userId, now),
+  ]);
+}
+
 export type AcceptInviteResult =
   | { ok: true; groupId: string }
-  | { ok: false; error: 'invite_invalid' | 'group_full' | 'too_many_groups' };
+  | { ok: false; error: 'invite_invalid' | 'group_full' | 'too_many_groups' | 'removed' };
 
+/**
+ * Joins a group through an invite. The checks before the write give friendly errors, but they
+ * are only reads: two people could pass them at the same moment. So the write itself is
+ * guarded. One statement uses the invite up only while it still has uses left, is not revoked
+ * or expired, and the group and the person are under their limits; the next inserts the
+ * membership only if that statement changed a row (`changes()`). D1 runs a batch in one go, so
+ * nobody can slip in between.
+ */
 export async function acceptInvite(
   db: Db,
   token: string,
   userId: string,
   now: number,
 ): Promise<AcceptInviteResult> {
-  const invite = await findUsableInvite(db, await sha256Hex(token), now);
+  const tokenHash = await sha256Hex(token);
+  const invite = await findUsableInvite(db, tokenHash, now);
   if (!invite) return { ok: false, error: 'invite_invalid' };
 
   const membership = await findMembership(db, invite.groupId, userId);
   if (membership && membership.removedAt === null) return { ok: true, groupId: invite.groupId };
-
+  // The owner removed this person: an invite link cannot undo that (the owner can reinstate them).
+  if (membership && membership.removedBy !== null && membership.removedBy !== userId) {
+    return { ok: false, error: 'removed' };
+  }
   if ((await activeMemberCount(db, invite.groupId)) >= MAX_GROUP_MEMBERS) {
     return { ok: false, error: 'group_full' };
   }
@@ -229,29 +283,26 @@ export async function acceptInvite(
     return { ok: false, error: 'too_many_groups' };
   }
 
-  await runBatch(db, [
-    reserveSeq(db, 1),
-    db
-      .insert(memberships)
-      .values({
-        groupId: invite.groupId,
-        userId,
-        role: 'member',
-        joinedAt: now,
-        removedAt: null,
-        serverSeq: seqFor(1, 1),
-      })
-      .onConflictDoUpdate({
-        target: [memberships.groupId, memberships.userId],
-        // Rejoining after leaving or being removed.
-        set: { removedAt: null, joinedAt: now, serverSeq: seqFor(1, 1) },
-      }),
-    db
-      .update(invites)
-      .set({ usedCount: sql`${invites.usedCount} + 1` })
-      .where(eq(invites.id, invite.id)),
-  ]);
-  return { ok: true, groupId: invite.groupId };
+  await joinGuarded(db, invite, userId, now);
+
+  // Did it go through, or did someone else take the last place first?
+  const after = await findMembership(db, invite.groupId, userId);
+  if (after && after.removedAt === null) return { ok: true, groupId: invite.groupId };
+  if (!(await findUsableInvite(db, tokenHash, now))) return { ok: false, error: 'invite_invalid' };
+  if ((await activeMemberCount(db, invite.groupId)) >= MAX_GROUP_MEMBERS) {
+    return { ok: false, error: 'group_full' };
+  }
+  return { ok: false, error: 'too_many_groups' };
+}
+
+/** Ends every invite link for the group that is still open. Returns how many were open. */
+export async function revokeInvites(db: Db, groupId: string, now: number): Promise<number> {
+  const revoked = await db
+    .update(invites)
+    .set({ revokedAt: now })
+    .where(and(eq(invites.groupId, groupId), isNull(invites.revokedAt)))
+    .returning({ id: invites.id });
+  return revoked.length;
 }
 
 export type RemoveMemberResult =
@@ -281,7 +332,45 @@ export async function removeMember(
     reserveSeq(db, 1),
     db
       .update(memberships)
-      .set({ removedAt: now, serverSeq: seqFor(1, 1) })
+      .set({ removedAt: now, removedBy: actorId, serverSeq: seqFor(1, 1) })
+      .where(and(eq(memberships.groupId, groupId), eq(memberships.userId, targetId))),
+  ]);
+  return { ok: true };
+}
+
+export type ReinstateResult =
+  | { ok: true }
+  | { ok: false; error: 'forbidden' | 'not_found' | 'group_full' | 'too_many_groups' };
+
+/**
+ * The owner brings back someone they (or they themselves) removed. Done by the owner directly,
+ * because an invite link deliberately cannot undo a removal.
+ */
+export async function reinstateMember(
+  db: Db,
+  groupId: string,
+  ownerId: string,
+  targetId: string,
+  now: number,
+): Promise<ReinstateResult> {
+  const actor = await findMembership(db, groupId, ownerId);
+  if (!actor || actor.removedAt !== null || actor.role !== 'owner' || actor.group.isPersonal) {
+    return { ok: false, error: 'forbidden' };
+  }
+  const target = await findMembership(db, groupId, targetId);
+  if (!target || target.removedAt === null) return { ok: false, error: 'not_found' };
+  if ((await activeMemberCount(db, groupId)) >= MAX_GROUP_MEMBERS) {
+    return { ok: false, error: 'group_full' };
+  }
+  if ((await activeGroupCount(db, targetId)) >= MAX_GROUPS_PER_USER) {
+    return { ok: false, error: 'too_many_groups' };
+  }
+
+  await runBatch(db, [
+    reserveSeq(db, 1),
+    db
+      .update(memberships)
+      .set({ removedAt: null, removedBy: null, joinedAt: now, serverSeq: seqFor(1, 1) })
       .where(and(eq(memberships.groupId, groupId), eq(memberships.userId, targetId))),
   ]);
   return { ok: true };

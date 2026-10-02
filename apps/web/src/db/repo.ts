@@ -1,7 +1,7 @@
 import type { CategoryData, EntityName, ExpenseData, SettlementData } from '@budget/shared';
 import { uuidv7 } from '@budget/shared';
-import type { Table } from 'dexie';
 import type { BudgetDb } from './database';
+import { tableFor } from './tables';
 import { entityKey, type OutboxEntry, type SyncedRow } from './types';
 
 /**
@@ -22,13 +22,6 @@ export function onLocalWrite(listener: Listener): () => void {
 const announce = () => {
   for (const listener of listeners) listener();
 };
-
-const tableFor = (db: BudgetDb, entity: EntityName) =>
-  (entity === 'category'
-    ? db.categories
-    : entity === 'expense'
-      ? db.expenses
-      : db.settlements) as unknown as Table<SyncedRow, string>;
 
 /**
  * The version a new change builds on. Several edits can queue up before a sync, and each must

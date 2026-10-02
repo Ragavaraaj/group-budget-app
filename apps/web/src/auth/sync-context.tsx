@@ -45,7 +45,7 @@ export function SignedInProvider({ me, children }: { me: MeResponse; children: R
           ),
         onRejected: (rejections) =>
           toast.error(
-            `${rejections.length} change${rejections.length === 1 ? '' : 's'} couldn’t be saved to the server. See Settings.`,
+            `${rejections.length} change${rejections.length === 1 ? '' : 's'} couldn’t be saved to the server and ${rejections.length === 1 ? 'was' : 'were'} undone on this device. See Settings.`,
           ),
         onRemoved: (name) => toast.info(`You’re no longer in “${name}”.`),
       },

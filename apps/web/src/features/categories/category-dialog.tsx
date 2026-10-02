@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { saveCategory } from '@/db/repo';
 import type { LocalCategory } from '@/db/types';
+import { tryLocal } from '@/lib/local-errors';
 import { cn } from '@/lib/utils';
 
 interface CategoryDialogProps {
@@ -62,14 +63,16 @@ function CategoryForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (!trimmed) return;
-        void saveCategory(db, user.id, {
-          id: existing?.id ?? uuidv7(),
-          groupId,
-          name: trimmed,
-          icon,
-          color,
-          archived: existing?.archived ?? false,
-        }).then(onDone);
+        void tryLocal(() =>
+          saveCategory(db, user.id, {
+            id: existing?.id ?? uuidv7(),
+            groupId,
+            name: trimmed,
+            icon,
+            color,
+            archived: existing?.archived ?? false,
+          }),
+        ).then((saved) => saved && onDone());
       }}
     >
       <DialogHeader>

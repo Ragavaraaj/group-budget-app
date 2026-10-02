@@ -1,7 +1,6 @@
-import { attemptHashSchema } from '@budget/shared';
+import { attemptHashSchema, randomToken, sha256Hex } from '@budget/shared';
 import { z } from 'zod';
 import { ApiError, apiSend, NetworkError } from '@/lib/api';
-import { randomSecret, sha256Hex } from '@/lib/crypto';
 import { pendingAttempt } from './storage';
 
 /** How long a started sign-in stays redeemable on this device (the server allows 5+5 minutes). */
@@ -26,7 +25,7 @@ export async function googleStartUrl(options: { invite?: string } = {}): Promise
   const params = new URLSearchParams();
   if (options.invite) params.set('invite', options.invite);
   if (isStandalone()) {
-    const secret = randomSecret();
+    const secret = randomToken();
     pendingAttempt.write({ secret, startedAt: Date.now() });
     const hash = await sha256Hex(secret);
     if (attemptHashSchema.safeParse(hash).success) params.set('attempt', hash);
@@ -50,14 +49,20 @@ export function cancelAttempt(): void {
   pendingAttempt.clear();
 }
 
-const redeemSchema = z.object({ status: z.enum(['pending', 'signed_in']) });
+const redeemSchema = z.object({
+  status: z.enum(['pending', 'signed_in']),
+  /** The group invite the person arrived with, if they did: the app opens its join page next. */
+  invite: z.string().optional(),
+});
 
-/** Asks the server for the sign-in the browser completed. True once this device is signed in. */
-export async function redeemAttempt(): Promise<boolean> {
+export type RedeemResult = { signedIn: false } | { signedIn: true; invite?: string };
+
+/** Asks the server for the sign-in the browser completed. Signed in once this device has it. */
+export async function redeemAttempt(): Promise<RedeemResult> {
   const attempt = pendingAttempt.read();
-  if (!attempt) return false;
+  if (!attempt) return { signedIn: false };
   try {
-    const { status } = await apiSend(
+    const { status, invite } = await apiSend(
       'POST',
       '/api/auth/attempt/redeem',
       { secret: attempt.secret },
@@ -65,10 +70,10 @@ export async function redeemAttempt(): Promise<boolean> {
     );
     if (status === 'signed_in') {
       pendingAttempt.clear();
-      return true;
+      return { signedIn: true, ...(invite ? { invite } : {}) };
     }
   } catch (error) {
     if (!(error instanceof NetworkError || error instanceof ApiError)) throw error;
   }
-  return false;
+  return { signedIn: false };
 }

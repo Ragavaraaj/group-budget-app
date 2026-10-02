@@ -30,6 +30,8 @@ export const loginAttempts = sqliteTable(
     userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     /** SHA-256 of the token on the confirmation page. */
     confirmHash: text('confirm_hash').unique(),
+    /** The group invite the person arrived with, handed to the app so it can open the join page. */
+    inviteToken: text('invite_token'),
     createdAt: integer('created_at').notNull(),
     expiresAt: integer('expires_at').notNull(),
     confirmedAt: integer('confirmed_at'),

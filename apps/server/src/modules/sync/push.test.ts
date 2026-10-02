@@ -17,6 +17,7 @@ import {
   upsert,
 } from '../../../test/sync-helpers';
 import { auditLog, expenses, processedMutations } from '../../db/schema';
+import { isDuplicateMutation, pushMutations } from './push';
 
 let alice: Person;
 let bob: Person;
@@ -363,5 +364,54 @@ describe('push: request validation', () => {
     const next = await pull(alice, { since: start });
     expect(next.body.expenses).toHaveLength(1);
     expect(next.body.cursor).toBeGreaterThan(start);
+  });
+});
+
+describe('push: what is retried', () => {
+  /** A database whose atomic batch fails with the given error, counting the attempts. */
+  const failingBatch = (error: Error) => {
+    const state = { batches: 0 };
+    const broken = Object.create(db, {
+      batch: {
+        value: async () => {
+          state.batches++;
+          throw error;
+        },
+      },
+    }) as typeof db;
+    return { broken, state };
+  };
+  const one = () =>
+    [upsert('expense', expenseData(groupId, alice.id))] as Parameters<typeof pushMutations>[2];
+
+  it('does not retry an error that is not the duplicate-mutation race', async () => {
+    const { broken, state } = failingBatch(new Error('D1_ERROR: database is busy'));
+    await expect(pushMutations(broken, alice.id, one(), Date.now())).rejects.toThrow(
+      'database is busy',
+    );
+    expect(state.batches).toBe(1); // one attempt: no second ~40 queries, and the real error surfaces
+  });
+
+  it('does retry once when the batch hit the idempotency key', async () => {
+    const duplicate = Object.assign(new Error('Failed query'), {
+      cause: new Error(
+        'UNIQUE constraint failed: processed_mutations.mutation_id: SQLITE_CONSTRAINT',
+      ),
+    });
+    const { broken, state } = failingBatch(duplicate);
+    await expect(pushMutations(broken, alice.id, one(), Date.now())).rejects.toBe(duplicate);
+    expect(state.batches).toBe(2); // the second pass fails the same way here, so it is rethrown
+  });
+
+  it('recognises the duplicate-mutation violation, and nothing else', () => {
+    const wrapped = (message: string) =>
+      Object.assign(new Error('Failed query'), { cause: new Error(message) });
+    expect(
+      isDuplicateMutation(wrapped('UNIQUE constraint failed: processed_mutations.mutation_id')),
+    ).toBe(true);
+    expect(isDuplicateMutation(wrapped('UNIQUE constraint failed: users.google_sub'))).toBe(false);
+    expect(isDuplicateMutation(wrapped('FOREIGN KEY constraint failed'))).toBe(false);
+    expect(isDuplicateMutation(new Error('boom'))).toBe(false);
+    expect(isDuplicateMutation(null)).toBe(false);
   });
 });

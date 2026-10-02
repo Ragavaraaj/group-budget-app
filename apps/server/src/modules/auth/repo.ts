@@ -190,15 +190,21 @@ export interface OauthState {
   inviteToken: string | null;
 }
 
+/**
+ * Starting a sign-in is open to anyone, so it must stay cheap: one write. Expired rows are swept
+ * when a sign-in completes (see `consumeOauthState`) and, on about one start in fifty, here, so the
+ * table stays small even if nobody finishes the sign-ins that were started.
+ */
 export async function saveOauthState(
   db: Db,
   state: string,
   value: OauthState,
   now: number,
   ttlMs: number,
+  sweep: boolean = Math.random() < 0.02,
 ): Promise<void> {
   await runBatch(db, [
-    db.delete(oauthStates).where(lt(oauthStates.expiresAt, now)),
+    ...(sweep ? [db.delete(oauthStates).where(lt(oauthStates.expiresAt, now))] : []),
     db.insert(oauthStates).values({
       stateHash: await sha256Hex(state),
       codeVerifier: value.codeVerifier,
@@ -216,10 +222,13 @@ export async function consumeOauthState(
   state: string,
   now: number,
 ): Promise<OauthState | null> {
-  const [row] = await db
-    .delete(oauthStates)
-    .where(eq(oauthStates.stateHash, await sha256Hex(state)))
-    .returning();
+  const [, [row]] = await db.batch([
+    db.delete(oauthStates).where(lt(oauthStates.expiresAt, now)), // sweep expired ones
+    db
+      .delete(oauthStates)
+      .where(eq(oauthStates.stateHash, await sha256Hex(state)))
+      .returning(),
+  ]);
   if (!row || row.expiresAt <= now) return null;
   return {
     codeVerifier: row.codeVerifier,
@@ -238,12 +247,14 @@ export async function bindAttempt(
   attemptHash: string,
   userId: string,
   confirmToken: string,
+  inviteToken: string | null,
   now: number,
 ): Promise<void> {
   const confirmHash = await sha256Hex(confirmToken);
   const fields = {
     userId,
     confirmHash,
+    inviteToken,
     createdAt: now,
     expiresAt: now + ATTEMPT_TTL_MS,
     confirmedAt: null,
@@ -276,8 +287,15 @@ export async function confirmAttempt(db: Db, confirmToken: string, now: number):
   return rows.length === 1;
 }
 
-/** The installed app collects its sign-in. One use only: the update succeeds for one caller. */
-export async function redeemAttempt(db: Db, secret: string, now: number): Promise<string | null> {
+/**
+ * The installed app collects its sign-in. One use only: the update succeeds for one caller. The
+ * invite the person arrived with comes back too, so the app can open the join page.
+ */
+export async function redeemAttempt(
+  db: Db,
+  secret: string,
+  now: number,
+): Promise<{ userId: string; inviteToken: string | null } | null> {
   const rows = await db
     .update(loginAttempts)
     .set({ consumedAt: now })
@@ -290,6 +308,7 @@ export async function redeemAttempt(db: Db, secret: string, now: number): Promis
         sql`${loginAttempts.expiresAt} > ${now}`,
       ),
     )
-    .returning({ userId: loginAttempts.userId });
-  return rows[0]?.userId ?? null;
+    .returning({ userId: loginAttempts.userId, inviteToken: loginAttempts.inviteToken });
+  const row = rows[0];
+  return row?.userId ? { userId: row.userId, inviteToken: row.inviteToken } : null;
 }
