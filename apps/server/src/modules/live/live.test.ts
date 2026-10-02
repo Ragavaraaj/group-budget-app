@@ -15,6 +15,7 @@ import {
 } from '../../../test/sync-helpers';
 import worker, { runScheduled } from '../../index';
 import { MAX_SOCKETS_PER_USER } from './hub';
+import { settleNotifications } from './notify';
 
 let alice: Person;
 let bob: Person;
@@ -90,6 +91,9 @@ const pushExpense = (by: Person, groupId: string, liveId?: string) =>
 async function sharedGroup() {
   const groupId = await createSharedGroup(alice);
   await join(bob, (await makeInvite(alice, groupId)).token);
+  // Creating the group and joining it tell people too, after their responses. Let those be
+  // delivered (to nobody: nobody is connected yet) so they can't be mistaken for what a test checks.
+  await settleNotifications();
   return groupId;
 }
 
@@ -131,6 +135,7 @@ describe('telling people something changed', () => {
 
     await pushExpense(alice, groupId, 'sender-device-1');
     await until(() => otherDevice.messages.length > 0, 'a message for the other device');
+    await settleNotifications();
     await settle();
     expect(sender.messages).toEqual([]);
     sender.socket.close(1000, 'done');
@@ -144,6 +149,7 @@ describe('telling people something changed', () => {
 
     await pushExpense(alice, groupId);
     await until(() => bobsApp.messages.length > 0, 'a message for Bob');
+    await settleNotifications();
     await settle();
     expect(outsider.messages).toEqual([]);
     outsider.socket.close(1000, 'done');
@@ -153,8 +159,6 @@ describe('telling people something changed', () => {
   it('does not tell anyone when a push changes nothing', async () => {
     const groupId = await sharedGroup();
     const bobsApp = await connect(bob);
-    // Telling people about the join runs after its response; let it land before counting.
-    await settle(300);
     const baseline = bobsApp.messages.length;
 
     const mutation = upsert('expense', expenseData(groupId, alice.id));
@@ -163,13 +167,15 @@ describe('telling people something changed', () => {
 
     // The same push again is a duplicate: nothing was written, so there is nothing to tell.
     await alice.client.post('/api/sync/push', { mutations: [mutation] });
-    await settle(300);
+    await settleNotifications();
+    await settle();
     expect(bobsApp.messages).toHaveLength(baseline + 1);
     bobsApp.socket.close(1000, 'done');
   });
 
   it('tells members about group changes: someone joining, a rename, a hand-over', async () => {
     const groupId = await createSharedGroup(alice);
+    await settleNotifications();
     const alicesApp = await connect(alice);
 
     const link = await makeInvite(alice, groupId);
@@ -250,6 +256,6 @@ describe('connections', () => {
 
     const response = await pushExpense(alice, groupId);
     expect(response.status).toBe(200);
-    await settle(200); // the notification runs after the response and must not break anything
+    await settleNotifications(); // it runs after the response and must not break anything
   });
 });

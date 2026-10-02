@@ -43,6 +43,18 @@ export async function activeMemberIds(db: Db, groupIds: readonly string[]): Prom
   return [...new Set(rows.map((row) => row.userId))];
 }
 
+/** Notifications started and not yet delivered, so a test can wait for them. */
+const inFlight = new Set<Promise<unknown>>();
+
+/**
+ * Resolves once every notification started so far has been handed to the hub. Tests use it to
+ * tell the messages caused by their set-up (someone joining, say) from the ones they are
+ * checking, without guessing how long things take.
+ */
+export async function settleNotifications(): Promise<void> {
+  while (inFlight.size > 0) await Promise.all([...inFlight]);
+}
+
 /**
  * Runs the notification after the response has gone, so it never slows a request down. Where
  * there is no execution context (unit tests calling the app directly) the promise simply runs.
@@ -52,6 +64,8 @@ export function afterResponse(
   task: Promise<unknown>,
 ): void {
   const safe = task.catch(() => undefined);
+  inFlight.add(safe);
+  void safe.then(() => inFlight.delete(safe));
   try {
     ctx?.waitUntil(safe);
   } catch {
