@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from 'hono';
-import type { Logger } from 'pino';
+import type { AppEnv } from '../app';
 
-export function requestLogger(logger: Logger): MiddlewareHandler {
+export function requestLogger(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const start = performance.now();
     await next();
@@ -11,7 +11,8 @@ export function requestLogger(logger: Logger): MiddlewareHandler {
       status: c.res.status,
       ms: Math.round(performance.now() - start),
     };
-    // Health checks run every few seconds; keep them out of the info log.
+    // Health checks are frequent; keep them out of the info log.
+    const logger = c.get('logger');
     if (c.req.path === '/api/healthz') logger.debug(entry, 'request');
     else logger.info(entry, 'request');
   };

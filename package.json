@@ -11,7 +11,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n server,web -c blue,green \"npm run dev -w @budget/server\" \"npm run dev -w @budget/web\"",
+    "dev": "npm run db:migrate:local && concurrently -k -n worker,web -c blue,green \"npm run dev -w @budget/server\" \"npm run dev -w @budget/web\"",
     "build": "npm run build -w @budget/web && npm run build -w @budget/server",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
@@ -20,7 +20,9 @@
     "e2e": "npm run build && playwright test",
     "db:generate": "npm run db:generate -w @budget/server",
     "check:ts-only": "! git ls-files '*.js' '*.jsx' '*.mjs' '*.cjs' | grep .",
-    "lint:fix": "biome check --write ."
+    "lint:fix": "biome check --write .",
+    "deploy": "npm run build -w @budget/web && npm run deploy -w @budget/server",
+    "db:migrate:local": "npm run db:migrate:local -w @budget/server"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

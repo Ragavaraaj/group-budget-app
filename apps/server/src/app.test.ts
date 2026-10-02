@@ -1,11 +1,14 @@
+import { SELF } from 'cloudflare:test';
+import { env } from 'cloudflare:workers';
 import { healthResponseSchema } from '@budget/shared';
 import { describe, expect, it } from 'vitest';
-import { createTestApp } from './test/helpers';
+import { createApp } from './app';
+
+const app = createApp();
 
 describe('GET /api/healthz', () => {
   it('reports ok and matches the shared response schema', async () => {
-    const { app } = createTestApp();
-    const res = await app.request('/api/healthz');
+    const res = await app.request('/api/healthz', {}, env);
 
     expect(res.status).toBe(200);
     const body = healthResponseSchema.parse(await res.json());
@@ -14,26 +17,35 @@ describe('GET /api/healthz', () => {
   });
 
   it('returns 503 when the database is unavailable', async () => {
-    const { app, sqlite } = createTestApp();
-    sqlite.close();
+    const brokenDb = {
+      prepare() {
+        throw new Error('D1 unavailable');
+      },
+    } as unknown as D1Database;
 
-    const res = await app.request('/api/healthz');
+    const res = await app.request('/api/healthz', {}, { ...env, DB: brokenDb });
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ status: 'error', db: 'error' });
   });
 
-  it('sets security headers', async () => {
-    const { app } = createTestApp();
-    const res = await app.request('/api/healthz');
-    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  it('is served by the real Worker entry point', async () => {
+    const res = await SELF.fetch('https://budget.test/api/healthz');
+    expect(res.status).toBe(200);
+    healthResponseSchema.parse(await res.json());
   });
 });
 
-describe('unknown routes', () => {
-  it('return a JSON 404', async () => {
-    const { app } = createTestApp();
-    const res = await app.request('/api/nope');
+describe('API responses', () => {
+  it('are never cacheable and carry security headers', async () => {
+    const res = await app.request('/api/healthz', {}, env);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('return a JSON 404 for unknown API routes', async () => {
+    const res = await app.request('/api/nope', {}, env);
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'not_found' });
+    expect(res.headers.get('cache-control')).toBe('no-store');
   });
 });

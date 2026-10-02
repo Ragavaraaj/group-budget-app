@@ -1,0 +1,10 @@
+# Copy to .dev.vars (gitignored) for local `wrangler dev`. Real secrets for a deployed Worker are
+# set with `wrangler secret put <NAME>`, never committed.
+ENVIRONMENT=development
+LOG_LEVEL=debug
+
+# M1 (Google sign-in) — see docs/PLAN.md section 7
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# ALLOWED_EMAILS=you@example.com
+# ENABLE_DEV_LOGIN=1

@@ -1,0 +1,14 @@
+# Applied by Cloudflare Workers static assets to every file this Worker serves, including the
+# index.html fallback for client-side routes. (API responses get theirs from Hono's secureHeaders.)
+# e2e/security-headers.spec.ts loads the app under this exact policy and fails on any violation.
+
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://lh3.googleusercontent.com; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+# Hashed build output never changes, so cache it forever. Everything else keeps Cloudflare's
+# default (revalidate on every load), which is what lets installed PWAs pick up new versions.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
