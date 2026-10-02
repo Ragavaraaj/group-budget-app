@@ -56,7 +56,14 @@ export const mutationSchema = z.union([upsertMutationSchema, tombstoneMutationSc
 export type Mutation = z.infer<typeof mutationSchema>;
 
 export const pushRequestSchema = z.object({
-  mutations: z.array(mutationSchema).min(1).max(MAX_MUTATIONS_PER_PUSH),
+  mutations: z
+    .array(mutationSchema)
+    .min(1)
+    .max(MAX_MUTATIONS_PER_PUSH)
+    .refine(
+      (mutations) => new Set(mutations.map((m) => m.mutationId)).size === mutations.length,
+      'A mutation id appears twice',
+    ),
 });
 export type PushRequest = z.infer<typeof pushRequestSchema>;
 

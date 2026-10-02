@@ -10,6 +10,8 @@ import { requestLogger } from './middleware/request-logger';
 import type { AuthContext } from './middleware/session';
 import { meRoutes } from './modules/auth/me';
 import { authRoutes } from './modules/auth/routes';
+import { groupRoutes, inviteRoutes } from './modules/groups/routes';
+import { syncRoutes } from './modules/sync/routes';
 
 export interface AppEnv {
   Bindings: Cloudflare.Env;
@@ -41,6 +43,9 @@ export function createApp() {
 
   app.route('/api/auth', authRoutes());
   app.route('/api/me', meRoutes());
+  app.route('/api/sync', syncRoutes());
+  app.route('/api/groups', groupRoutes());
+  app.route('/api/invites', inviteRoutes());
 
   app.get('/api/healthz', async (c) => {
     try {

@@ -122,3 +122,17 @@ describe('pullQuerySchema', () => {
     expect(pullQuerySchema.safeParse({ since: '-1' }).success).toBe(false);
   });
 });
+
+describe('pushRequestSchema duplicates', () => {
+  it('refuses the same mutation id twice in one push', () => {
+    const one = {
+      mutationId: uuidv7(),
+      baseVersion: null,
+      createdAt: Date.now(),
+      op: 'upsert',
+      entity: 'expense',
+      data: expense(),
+    };
+    expect(pushRequestSchema.safeParse({ mutations: [one, one] }).success).toBe(false);
+  });
+});
