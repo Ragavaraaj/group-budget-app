@@ -45,12 +45,16 @@ test.describe('when the server does not cooperate', () => {
     );
     await addExpenseOn(page, { amount: '180', note: 'Server is down' });
 
-    await expect(page.getByRole('status').filter({ hasText: 'Sync problem · 1 waiting' })).toBeVisible();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Sync problem · 1 waiting' }),
+    ).toBeVisible();
     const row = page.getByRole('link', { name: /Server is down/ });
     await expect(row).toContainText('Not synced yet');
 
     await page.getByRole('link', { name: 'Settings' }).click();
-    await expect(page.getByText('The server couldn’t be reached properly. Trying again shortly.')).toBeVisible();
+    await expect(
+      page.getByText('The server couldn’t be reached properly. Trying again shortly.'),
+    ).toBeVisible();
     await expect(page.getByText('1 change waiting to be sent.')).toBeVisible();
 
     // The server comes back; the person presses "Sync now".
@@ -101,7 +105,9 @@ test.describe('when the server does not cooperate', () => {
     await expect(panel).toBeVisible();
     await expect(page.getByText(/you’re no longer in that group/)).toBeVisible();
 
-    await page.getByRole('button', { name: 'Dismiss' }).click();
+    // (The install note has a Dismiss button too.)
+    const card = page.locator('[data-slot="card"]').filter({ has: panel });
+    await card.getByRole('button', { name: 'Dismiss' }).click();
     await expect(panel).toHaveCount(0);
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
@@ -147,12 +153,20 @@ test.describe('two devices of one person', () => {
     await page.getByRole('link', { name: /Contested/ }).click();
     await page.getByLabel('Amount').fill('200');
     await submitButton(page, 'Save changes').click();
-    await waitForSynced(page);
+    // The server has it. (The status chip can still say "Synced" for a moment after the save.)
+    await expect
+      .poll(async () => {
+        const pulled = await (await page.request.get('/api/sync/pull')).json();
+        return pulled.expenses.find((e: { note: string }) => e.note === 'Contested')?.amountMinor;
+      })
+      .toBe(20_000);
 
     await other.context.setOffline(false);
     await other.page.evaluate(() => window.dispatchEvent(new Event('online')));
     await expect(
-      other.page.getByText('Someone else also changed an expense you edited. Your version was kept.'),
+      other.page.getByText(
+        'Someone else also changed an expense you edited. Your version was kept.',
+      ),
     ).toBeVisible();
     await waitForSynced(other.page);
 
@@ -203,11 +217,16 @@ test.describe('exporting', () => {
 
     // Split with Sam: ₹900 total, Alice's share ₹450, Alice paid.
     const hotel = lines.find((line) => line.includes('Export trip'));
-    expect(hotel).toMatch(/^\d{4}-\d{2}-\d{2},Export trip,,"Hotel, ""deluxe""",900\.00,450\.00,Alice,Alice$/);
+    expect(hotel).toMatch(
+      /^\d{4}-\d{2}-\d{2},Export trip,,"Hotel, ""deluxe""",900\.00,450\.00,Alice,Alice$/,
+    );
 
     // A cell a spreadsheet would run as a formula gets an apostrophe in front.
     for (const note of ["'+91 taxi", "'-refund?", "'@home"]) {
-      expect(lines.some((line) => line.includes(`,Personal,,${note},`)), note).toBe(true);
+      expect(
+        lines.some((line) => line.includes(`,Personal,,${note},`)),
+        note,
+      ).toBe(true);
     }
     expect(csv).not.toMatch(/,Personal,,[+\-@]/);
   });
@@ -223,6 +242,8 @@ test.describe('exporting', () => {
     await addExpenseOn(page, { amount: '35', note: 'Deleted again' });
     await page.getByRole('link', { name: /Deleted again/ }).click();
     await page.getByRole('button', { name: 'Delete expense' }).click();
+    // Not just "no such link": that is also true while still on the edit form.
+    await expect(page.getByText('Expense deleted')).toBeVisible();
     await expect(page.getByRole('link', { name: /Deleted again/ })).toHaveCount(0);
 
     await page.goto('/settings');
