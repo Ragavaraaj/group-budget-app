@@ -18,7 +18,7 @@ The UI reads and writes only the **local IndexedDB**. A sync engine reconciles w
         │ Static assets (apps/web/dist): the PWA, SPA fallback,       │
         │   headers from public/_headers                              │
         │ /api/* → Hono (Worker code runs only for these paths)       │
-        │   /api/auth/google/start|callback  /api/auth/logout  /me    │
+        │   /api/auth/google/start|callback  /attempt/*  /logout  /me │
         │   /api/sync/push|pull   (JSON + zod)                        │
         │   /api/groups/*  /api/invites/*     (online-only actions)   │
         │            │  modules/*/repo (Drizzle)                      │
@@ -29,7 +29,7 @@ The UI reads and writes only the **local IndexedDB**. A sync engine reconciles w
 
 **Rules that keep the code clean**
 
-1. Reads of business data in the UI come from Dexie. Writes go to Dexie + outbox, then sync. Only auth, group management and invites call the API directly (they need the server's say-so, so they are online-only).
+1. Reads of business data in the UI come from Dexie. Writes go to Dexie + outbox, then sync. Only auth, group management (create, rename, remove/leave) and invites call the API directly (they need the server's say-so, so they are online-only); their results come back through the normal pull.
 2. Server code touches the database only through each module's `repo`, never from route handlers directly.
 3. Pure logic (money, splits, balances, settle-up, zod schemas) lives in `packages/shared` with no I/O, so it runs identically in the browser, the Worker and tests.
 4. **Same-origin everywhere**: in production one Worker serves the API and the static files; in development Vite proxies `/api/*` to `wrangler dev`. No CORS, and cookies just work.
