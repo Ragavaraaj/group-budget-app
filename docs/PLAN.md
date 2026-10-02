@@ -26,8 +26,8 @@ Status: **draft v4** · Scope: architecture and roadmap. M0 is built; M1 is next
 - **Runtime for tooling**: **Node 26** (npm 11), pinned in `.nvmrc` and `engines`; the Worker itself runs on Cloudflare's runtime, not Node.
 - **TypeScript everywhere**: all source _and_ config files are `.ts`/`.tsx` (`vite.config.ts`, `vitest.config.ts`, `playwright.config.ts`, …). `wrangler.jsonc`, `biome.json` and `tsconfig*.json` are the only non-code config. CI runs `npm run check:ts-only`, which fails if any `.js/.jsx/.mjs/.cjs` file is tracked.
 - **Scale**: 50–100 users maximum.
-- **iPhones are in use** in the group, so installed-iOS-PWA sign-in is a first-class requirement (§7).
-- **Domain**: later. Development and the iPhone sign-in spike use the free `*.workers.dev` HTTPS address; buy a domain **before real users install the app** (§9).
+- **iPhones are in use** in the group, and the app is **installed from Chrome** ("Add to Home Screen"; no Safari). All iOS browsers use WebKit, so installed-iOS sign-in is a first-class requirement, solved by attempt-login (§7).
+- **Domain**: later. Development and the iPhone confirmation run use the free `*.workers.dev` HTTPS address; buy a domain **before real users install the app** (§9).
 - **Google Cloud OAuth client**: you will create it later (§7 has the steps). M1 is split so work isn't blocked on it (§12).
 - **RSC**: parked (§15). Nothing in v1 depends on it.
 
@@ -94,6 +94,7 @@ IDs are **UUIDv7** generated on the device (sortable; makes offline creates idem
 ```
 users            id, google_sub (unique), email, display_name, avatar_url, created_at, last_login_at
 sessions         id_hash, user_id, expires_at, user_agent, created_at
+login_attempts   id_hash, user_id (null until bound), expires_at, consumed_at   -- installed-app sign-in (§7)
 groups           id, name, is_personal, created_by
 memberships      group_id, user_id, role (owner|member), joined_at
 invites          id, token_hash, group_id, created_by, expires_at, max_uses, used_count
@@ -174,7 +175,7 @@ Why custom: expenses are append-mostly, edits are rare and rarely concurrent, so
 - Update flow: "New version available — reload" prompt; never auto-reload mid-entry.
 - Manifest: `standalone`, 192/512/maskable icons, `apple-touch-icon`, app shortcut "Add expense".
 - Call `navigator.storage.persist()`. Safari can evict IndexedDB for non-installed sites; the server remains the source of truth, so eviction is recoverable by re-pulling, but un-synced outbox items would be lost, which is why flush-on-foreground matters.
-- iOS caveats: push works only for installed PWAs (16.4+); no Background Sync; sign-in needs care (§7).
+- iOS caveats: push works only for installed PWAs (16.4+); no Background Sync; sign-in uses attempt-login in standalone mode (§7); install from Chrome via Add to Home Screen, since non-installed use loses the service worker and risks storage eviction.
 
 ## 7. Auth: Google sign-in
 
@@ -197,7 +198,19 @@ Why custom: expenses are append-mostly, edits are rare and rarely concurrent, so
 4. Create an OAuth client ID (type _Web application_). Authorized redirect URIs: `http://localhost:5173/api/auth/google/callback` (dev, through the Vite proxy) and `https://group-budget.<your-subdomain>.workers.dev/api/auth/google/callback` (the free Cloudflare address; real projects use `workers.dev` callbacks with Google). When you buy a domain, add `https://<your-domain>/api/auth/google/callback` too. Google rejects bare IPs and non-public hostnames.
 5. Store the credentials as Worker secrets: `wrangler secret put GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (locally they go in the gitignored `apps/server/.dev.vars`). Never in git.
 
-**Known risk — installed iOS PWA (now confirmed relevant: the group uses iPhones).** On iOS, a home-screen web app gets its own storage, separate from Safari, and reports say iOS can hand a third-party OAuth redirect to Safari instead of keeping it in the app window ([example thread](https://developer.apple.com/forums/thread/649699)). If that happens, the user signs in in Safari but the installed app stays signed out. This is untestable on desktop, so **a real-iPhone spike is the first task of M1b**, and the free `workers.dev` HTTPS address means no domain is needed for it. If it fails, fallbacks in order of preference: (a) open the auth flow via `window.open` so it stays in the app, (b) a one-time **device-link code**: sign in with Google in Safari, receive a short code, type it into the installed app to mint a session there, (c) the Google Identity Services ID-token flow (no redirect). Android and desktop installs are not affected.
+**Known risk — installed iOS web app (the group uses iPhones, and installs the app from Chrome).** Every iOS browser, Chrome included, runs on Apple's WebKit. A home-screen web app, whether added from Chrome or Safari, gets its own cookies and IndexedDB, separate from the browser's tabs, and reports conflict on where a third-party OAuth redirect ends up: the app window, an in-app browser sheet, or the browser ([example thread](https://developer.apple.com/forums/thread/649699), [PocketBase discussion](https://github.com/pocketbase/pocketbase/discussions/2429)). If it ends up outside the app, the user signs in there but the installed app stays signed out. We can't control that, so sign-in is designed **not to depend on where the redirect lands**.
+
+**Attempt-login (used only in standalone mode: `navigator.standalone` or `display-mode: standalone`; browser tabs, Android and desktop use the plain redirect above).** Like a TV sign-in, the installed app polls for its own login:
+
+1. The app creates a random 256-bit `attempt_secret`, keeps it in its own IndexedDB (it survives the app being backgrounded while the user is in the sign-in sheet), and starts sign-in with `GET /api/auth/google/start?attempt=<sha256(secret)>`.
+2. Google sign-in completes wherever iOS puts it: the app window, an in-app sheet, or Chrome. If it completes in the app window, the callback signs in normally and the attempt is cleaned up.
+3. Otherwise, after the sign-up gate passes, the callback shows a **confirmation page**: "Finish signing in on your installed app? Continue only if you just tapped Sign in there." On Continue it binds the user to the attempt (`login_attempts`, §4) with a 5-minute expiry. The page exists so a friend can't be tricked into approving someone else's attempt.
+4. When the installed app regains focus (and on startup) it posts the secret to `POST /api/auth/attempt/redeem`. The server hashes it, finds a bound, unexpired, unconsumed attempt, marks it consumed (single use) and sets the session cookie in the app's own storage. The secret never leaves the device, so a leaked hash is useless.
+5. Rate-limit `redeem` at Cloudflare (§8). A typed one-time code is **not** built; add it only if real devices show the polling path failing.
+
+This is testable on desktop: two Playwright browser contexts (separate cookie jars) stand in for the installed app and the browser. What still needs a real iPhone is a confirmation run (in M1b), **using Chrome's "Add to Home Screen"**, to check the hand-back feels right. It is no longer a go/no-go spike. The Google Identity Services ID-token flow is not used: it needs third-party JavaScript, which breaks the strict CSP (§8).
+
+**Not-installed guard.** In a plain iOS Chrome tab, service workers may be unavailable and WebKit caps script-writable storage at 7 days for sites that aren't installed ([MagicBell](https://www.magicbell.com/blog/offline-first-pwas-service-worker-caching-strategies)), which could wipe an unsynced outbox. If the app is not installed (or `serviceWorker` is missing), show an "Install to your home screen for offline use" banner and warn before logout or when un-synced items are old. The group is told to install from Chrome (Share/menu → Add to Home Screen); installed web apps are exempt from the 7-day cap.
 
 **Dev/test only**: a dev-login endpoint (for e2e and local work without Google credentials) exists only when `ENVIRONMENT` is not `production` **and** `ENABLE_DEV_LOGIN=1`. `ENVIRONMENT` defaults to `production`, so it can't be on by accident in a deployed Worker.
 
@@ -206,7 +219,7 @@ Why custom: expenses are append-mostly, edits are rare and rarely concurrent, so
 - **Auth**: no passwords exist anywhere in the system. Session tokens are hashed at rest. `state` + PKCE on every OAuth round-trip. See §7 for the sign-up gate.
 - **CSRF**: `SameSite=Lax` + `Origin` header check on all non-GET requests.
 - **AuthZ**: membership and role checked per request and per mutation, server-side. Never trust a `group_id` from the client.
-- **Rate limiting** on auth and invite endpoints, done at Cloudflare (rate-limiting rules or the Workers rate-limit binding), **not in Worker memory**: isolates are many and short-lived, so an in-memory counter would not hold. Invites are random, expiring, usage-limited, and stored hashed.
+- **Rate limiting** on auth, `attempt/redeem` and invite endpoints, done at Cloudflare (rate-limiting rules or the Workers rate-limit binding), **not in Worker memory**: isolates are many and short-lived, so an in-memory counter would not hold. Invites are random, expiring, usage-limited, and stored hashed.
 - **Input**: zod-validate every inbound payload; Drizzle parameterized queries only.
 - **Headers**: strict CSP (`default-src 'self'`, `script-src 'self'`, no inline scripts, no `eval`), HSTS, `X-Content-Type-Options`, `Referrer-Policy`, set by Cloudflare from `apps/web/public/_headers` for the app and by Hono's `secureHeaders` for API responses. `style-src` needs `'unsafe-inline'` because shadcn/sonner inject styles. An e2e test (`e2e/security-headers.spec.ts`) loads the app under the policy the Worker **really serves** and fails on any violation. It already caught one issue: zod 4 compiles validators with `new Function()` at schema-construction time, so `apps/web/src/lib/zod-config.ts` (imported first in `main.tsx`) turns that off rather than allowing `unsafe-eval`.
 - **Secrets**: Google client secret and any other secrets only as Worker secrets (`wrangler secret put`) or the gitignored `.dev.vars`. Config is validated at startup of each isolate; the build never contains secrets.
@@ -240,7 +253,7 @@ If a limit is ever hit, the **$5/month paid plan** raises all of them; nothing e
 
 **Domain and region**
 
-- **Start on `workers.dev`**: free, HTTPS, and accepted by Google for the OAuth redirect, so development and the iPhone spike need no domain.
+- **Start on `workers.dev`**: free, HTTPS, and accepted by Google for the OAuth redirect, so development and the iPhone confirmation run need no domain.
 - **Buy a domain before real users install the app.** An installed PWA and its local data (IndexedDB) belong to an origin, so moving from `*.workers.dev` to a custom domain later means users reinstall and re-sync, and any unsynced outbox on a device would be lost. Compare _renewal_ prices; any mainstream TLD is fine, and Cloudflare's own registrar is worth checking for price and TLD support. Short and neutral beats clever, since the name is permanent.
 - **Region**: D1's `--location apac` hint keeps the database near India. The edge Worker is global; the app is offline-first, so latency matters little.
 
@@ -263,7 +276,7 @@ If a limit is ever hit, the **$5/month paid plan** raises all of them; nothing e
 - **`apps/server` (Vitest 4 + `@cloudflare/vitest-pool-workers`)**: tests run **inside `workerd`**, the real Workers runtime, against a simulated D1 that has the real migrations applied (`vitest.config.ts` + `test/apply-migrations.ts`). They call `app.request(path, init, env)` and also `SELF.fetch` through the real Worker entry. Covers (as built) health, headers, config, the schema and the batch-atomicity guarantee, and (as M1 lands) the sign-up gate with the Google exchange mocked, session lifecycle, authorization per mutation, idempotent push, pull cursors and tombstones. It will also assert that the pull query's `meta.rows_read` (D1 reports rows scanned for every query) stays proportional to the rows returned, so a missing index fails a test instead of burning quota in production.
 - **`apps/web` (Vitest + `fake-indexeddb`)**: repositories, outbox, sync engine against a mock API (from M1).
 - **Sync integration**: real Worker + two simulated clients: offline edits on two devices, duplicate pushes, delete vs. edit, revoked membership.
-- **E2E (Playwright, Chromium)**: runs against `wrangler dev` serving the **built** web app and the API from one origin, which is how production behaves. As built: manifest installability, offline reload and deep-link served by the service worker, the real security headers with zero CSP violations, asset caching headers. From M1: add an expense offline → reload offline → still there → reconnect → appears on a second context, using dev-login (the e2e server will start with `ENVIRONMENT=development` and `ENABLE_DEV_LOGIN=1`).
+- **E2E (Playwright, Chromium)**: runs against `wrangler dev` serving the **built** web app and the API from one origin, which is how production behaves. As built: manifest installability, offline reload and deep-link served by the service worker, the real security headers with zero CSP violations, asset caching headers. From M1b: attempt-login with two browser contexts (one as the installed app, one as the browser). From M1: add an expense offline → reload offline → still there → reconnect → appears on a second context, using dev-login (the e2e server will start with `ENVIRONMENT=development` and `ENABLE_DEV_LOGIN=1`).
 - **Static**: strict TypeScript and **Biome** (lint, format, import order) with `noRestrictedImports` enforcing the boundaries in §11. Biome replaced ESLint + Prettier; it doesn't format Markdown/YAML.
 - **CI gates**: TS-only guard, Biome, typecheck (regenerates Worker types), unit tests, a dry-run bundle of the Worker, production-dependency audit, and the e2e job.
 
@@ -337,12 +350,12 @@ group-budget-app/
 | ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | **M0** | Foundations — **done**         | Workspace, tooling, CI; Hono Worker with `/api/healthz`; Drizzle + D1 with the first migration; React shell with shadcn and an installable PWA; one-origin dev and e2e setup; drafted Cloudflare deploy                                                                                                  | `npm run dev` runs everything locally; CI green; the production build installs as a PWA and reloads offline against the real Worker runtime    |
 | **M1a**| Personal ledger, offline-first | Dexie schema; expenses + categories CRUD; outbox + pull sync (polling) with `db.batch` writes and `server_seq`; indexes from §4; **dev-login** so no Google credentials are needed; JSON/CSV export; first deploy to `workers.dev`; **Time Travel restore drill**                                         | Add expenses in airplane mode on a phone; they appear on a second device after reconnect; a restore has been performed                          |
-| **M1b**| Google sign-in                 | **iPhone sign-in spike first (§7)**, on the `workers.dev` deployment; Google sign-in + sessions + sign-up gate; per-user local DB; logout flow; fallbacks from §7 if iOS misbehaves                                                                                                                       | An iPhone and an Android phone each sign in to the installed app; a friend joins through an invite link                                        |
+| **M1b**| Google sign-in                 | Google sign-in + sessions + sign-up gate; **attempt-login for installed apps (§7), built first and e2e-tested with two browser contexts**; per-user local DB; logout flow; not-installed banner; real-iPhone confirmation run on Chrome's "Add to Home Screen" at the `workers.dev` address                  | An iPhone (installed from Chrome) and an Android phone each sign in to the installed app; a friend joins through an invite link                |
 | **M2** | Groups                         | Group create/rename, invites, memberships, split types (equal, exact, percent, shares), balances, settle-up, activity feed                                                                                                                                                                              | Two or three people run a trip's expenses and the balances match a hand calculation                                                            |
 | **M3** | Insights                       | Monthly/category/trend reports (shadcn charts), budgets + alerts, search/filter, CSV import, recurring expenses (Worker Cron Trigger); configurable month start (calendar month or salary-cycle day) and a yearly view by Indian financial year (Apr–Mar)                                                 | Month-end review is possible without leaving the app                                                                                           |
 | **M4** | Extras (pick as needed)        | Live updates over a Durable Object WebSocket hub; scheduled `d1 export` to R2; Web Push; bank-statement CSV import presets; UPI deep link on settle-up (`upi://pay?…`; verify it works across apps first); placeholder (non-user) group members; in-app admin for the allowlist; custom domain move       | —                                                                                                                                              |
 
-M1 is split so build work does not wait on credentials you are creating later: M1a needs no Google setup at all, and M1b begins when the OAuth client exists. The iPhone risk is retired as early as the credentials allow.
+M1 is split so build work does not wait on credentials you are creating later: M1a needs no Google setup at all, and M1b begins when the OAuth client exists. The iPhone sign-in risk is handled by design (attempt-login), so it no longer needs a spike before building.
 
 **Status: M0 is done and running on Workers + D1** (branch `migrate-cloudflare`). Verified: TS-only guard, Biome, typecheck, **15 server tests inside `workerd`** and 40 shared tests; a dry-run Worker bundle (about 1 MB, 170 KB gzipped); and **6 end-to-end tests in real Chromium against `wrangler dev`** serving the built app and API from one origin: installable manifest, offline reload and deep-link, real security headers with zero CSP violations, immutable asset caching, `no-store` API responses. A negative control (service worker blocked) confirms the offline test would fail without the service worker. `npm run dev` was smoke-tested end to end (Vite proxying to the Worker).
 
@@ -368,7 +381,7 @@ Out of scope (decided): multi-currency/FX, receipt photos or any attachments, pa
 
 **Still open**
 
-1. **Google Cloud OAuth client** — yours to create (§7 lists the steps). It gates M1b and the iPhone spike, **not M1a**.
+1. **Google Cloud OAuth client** — yours to create (§7 lists the steps). It gates M1b and the real-iPhone confirmation run, **not M1a**.
 2. **Domain name** — before real users install the app, not before. Decide whether to register it through Cloudflare.
 3. **Cloudflare account** — a free account is enough to start; I will need you to run `wrangler login` and create the D1 database (README has the commands), since I can't reach your account from here.
 
@@ -376,7 +389,8 @@ Out of scope (decided): multi-currency/FX, receipt photos or any attachments, pa
 
 | Risk                                                                     | Mitigation                                                                                                                                          |
 | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Google sign-in fails inside an installed iOS PWA (the group has iPhones) | Real-iPhone spike first in M1b, on `workers.dev`; three fallbacks in §7                                                                              |
+| Google sign-in lands outside an installed iOS web app (all iOS browsers are WebKit; the group installs from Chrome) | Attempt-login (§7): the app redeems its own session by secret, wherever the redirect ends; desktop-testable; real-iPhone confirmation run in M1b |
+| App used in an iOS Chrome tab, not installed (no service worker, 7-day storage cap) | Install banner, unsynced-data warnings, install instructions for the group (§7)                                                         |
 | D1 has no interactive transactions                                       | Read/validate first, one atomic `db.batch`; sequence numbers assigned in SQL; batch rollback verified by a test; membership race window accepted and audited |
 | Free-plan limits (requests, D1 rows scanned/written) are hit             | Indexes on every hot query (enforced by a `rows_read` test from M1a); cheap polling with backoff; sliding sessions rarely write; a hit pauses the database until the daily reset, and the $5 plan lifts it within minutes; recheck limits before launch         |
 | Consent screen left in "Testing" (100-user cap, 7-day expiry)            | Publish to "In production" (basic scopes need no verification)                                                                                      |
