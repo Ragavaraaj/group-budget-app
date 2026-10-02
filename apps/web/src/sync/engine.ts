@@ -12,6 +12,8 @@ export type SyncState = 'idle' | 'syncing' | 'offline' | 'error' | 'signed_out';
 export interface SyncStatus {
   state: SyncState;
   lastSyncedAt: number | null;
+  /** The live connection is up, so changes arrive as they happen. */
+  live: boolean;
 }
 
 /** Things the UI wants to tell the person about; the engine itself shows nothing. */
@@ -61,7 +63,7 @@ export class SyncEngine {
   private readonly pollMs: number;
   private readonly maxPollMs: number;
 
-  private status: SyncStatus = { state: 'idle', lastSyncedAt: null };
+  private status: SyncStatus = { state: 'idle', lastSyncedAt: null, live: false };
   private readonly subscribers = new Set<() => void>();
 
   private running: Promise<void> | null = null;
@@ -69,6 +71,8 @@ export class SyncEngine {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private interval: number;
   private started = false;
+  /** True while the live connection is up: news arrives by itself, so polling is a safety net. */
+  private live = false;
   private unsubscribeWrites: (() => void) | null = null;
 
   constructor(options: EngineOptions) {
@@ -143,8 +147,35 @@ export class SyncEngine {
   private schedule() {
     this.clearTimer();
     if (!this.started || !this.env.isVisible() || this.status.state === 'signed_out') return;
-    this.timer = setTimeout(() => void this.trigger(), this.interval);
+    // With the live connection up the server says when there is news, so polling only has to
+    // catch what a dropped message could miss: the slowest interval will do.
+    const delay = this.live ? this.maxPollMs : this.interval;
+    this.timer = setTimeout(() => void this.trigger(), delay);
   }
+
+  /**
+   * The live connection came up or went down. Coming up slows the polling down; going down
+   * brings the normal interval back and syncs once, to pick up anything missed meanwhile.
+   */
+  setLive(live: boolean): void {
+    if (this.live === live) return;
+    this.live = live;
+    this.setStatus({ live });
+    if (!this.started) return;
+    if (live) {
+      // Connecting is itself a moment to catch up (the app may have been away).
+      void this.trigger();
+    } else {
+      this.interval = this.pollMs;
+      void this.trigger();
+    }
+  }
+
+  /** The server says something changed. Same as asking for a sync, and never backs off. */
+  readonly onLiveNews = (): void => {
+    this.interval = this.pollMs;
+    void this.trigger();
+  };
 
   // --- running a sync ----------------------------------------------------------------------
 

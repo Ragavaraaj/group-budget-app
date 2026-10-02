@@ -72,6 +72,8 @@ interface Plan {
   writes: Write[];
   /** Mutations that are valid but change nothing (delete of a deleted row): still recorded. */
   noops: Mutation[];
+  /** The people in the groups being written to, who should be told about it. */
+  recipients: string[];
 }
 
 const entityIdOf = (m: Mutation) => (m.op === 'upsert' ? m.data.id : m.id);
@@ -90,9 +92,11 @@ export async function pushMutations(
   userId: string,
   mutations: Mutation[],
   now: number,
+  /** Called once the changes are committed, with the people who should hear about them. */
+  onCommitted?: (recipients: string[]) => void,
 ): Promise<MutationResult[]> {
   try {
-    return await attempt(db, userId, mutations, now);
+    return await attempt(db, userId, mutations, now, onCommitted);
   } catch (error) {
     // The one failure worth retrying is the same mutation arriving twice at once: the second
     // batch violates the primary key on processed_mutations and rolls back whole, and a second
@@ -100,7 +104,7 @@ export async function pushMutations(
     // rethrown as it is: retrying would repeat the same ~40 queries, and on the free plan's
     // 50-per-invocation cap hide the real error behind a quota one.
     if (!isDuplicateMutation(error)) throw error;
-    return attempt(db, userId, mutations, now);
+    return attempt(db, userId, mutations, now, onCommitted);
   }
 }
 
@@ -115,6 +119,7 @@ async function attempt(
   userId: string,
   mutations: Mutation[],
   now: number,
+  onCommitted?: (recipients: string[]) => void,
 ): Promise<MutationResult[]> {
   const done = await db
     .select({ id: processedMutations.mutationId })
@@ -131,7 +136,10 @@ async function attempt(
   const plan = todo.length > 0 ? await planMutations(db, userId, todo, now) : null;
   const byId = new Map(plan?.results.map((r) => [r.mutationId, r]));
 
-  if (plan) await commit(db, userId, plan, now);
+  if (plan) {
+    await commit(db, userId, plan, now);
+    if (plan.writes.length > 0) onCommitted?.(plan.recipients);
+  }
 
   return mutations.map(
     (m) => byId.get(m.mutationId) ?? { mutationId: m.mutationId, status: 'duplicate' as const },
@@ -220,7 +228,7 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
   // created, and per group, so the common push (expenses) pays nothing for it.
   const room = await roomLeft(db, todo, known);
 
-  const plan: Plan = { results: [], writes: [], noops: [] };
+  const plan: Plan = { results: [], writes: [], noops: [], recipients: [] };
   const reject = (m: Mutation, reason: RejectReason) =>
     plan.results.push({ mutationId: m.mutationId, status: 'rejected', reason });
   const applied = (m: Mutation, version: number, conflict: boolean) =>
@@ -320,6 +328,12 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
     });
     applied(m, version, false);
   }
+  const written = new Set(plan.writes.map((write) => groupIdOf(write.mutation)));
+  plan.recipients = unique(
+    memberRows
+      .filter((row) => row.removedAt === null && written.has(row.groupId))
+      .map((row) => row.userId),
+  );
   return plan;
 }
 

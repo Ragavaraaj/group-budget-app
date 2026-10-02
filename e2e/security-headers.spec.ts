@@ -59,6 +59,8 @@ test('the app runs with zero violations under the policy the Worker really serve
   }
   // The API call (connect-src) and the service worker (worker-src) must both work under it.
   await expect(page.getByText('Online', { exact: true })).toBeVisible();
+  // The live-updates WebSocket must be allowed by connect-src too.
+  await expect(page.getByText(/Live: changes from other people/)).toBeVisible({ timeout: 10_000 });
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });

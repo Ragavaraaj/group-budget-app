@@ -101,7 +101,7 @@ export function SettingsPage() {
 function SyncCard() {
   const db = useDb();
   const engine = useEngine();
-  const { state, lastSyncedAt } = useSyncStatus();
+  const { state, lastSyncedAt, live } = useSyncStatus();
   const waiting = useLiveQuery(() => db.outbox.count(), [db]) ?? 0;
   const oldest = useLiveQuery(
     async () => (await db.outbox.orderBy('seq').first())?.createdAt,
@@ -129,6 +129,7 @@ function SyncCard() {
                   ? `Last synced at ${new Date(lastSyncedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}.`
                   : 'Syncing…'}
           {waiting > 0 ? ` ${waiting} change${waiting === 1 ? '' : 's'} waiting to be sent.` : ''}
+          {live ? ' Live: changes from other people arrive as they happen.' : ''}
         </p>
         {stale ? (
           <p role="alert" className="text-destructive">

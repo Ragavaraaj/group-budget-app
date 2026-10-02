@@ -19,6 +19,8 @@ export interface GenerateResult {
   generated: number;
   /** Rules that moved on. */
   rules: number;
+  /** The groups that got new expenses, so their members' apps can be told. */
+  groupIds: string[];
 }
 
 /**
@@ -81,7 +83,7 @@ export async function generateDueExpenses(
   }
 
   const occurrences = plans.reduce((sum, plan) => sum + plan.dates.length, 0);
-  if (occurrences === 0) return { generated: 0, rules: 0 };
+  if (occurrences === 0) return { generated: 0, rules: 0, groupIds: [] };
 
   // Every row written takes a change number: each expense, and each rule that moved on.
   const total = occurrences + plans.length;
@@ -145,5 +147,9 @@ export async function generateDueExpenses(
   }
 
   await runBatch(db, statements);
-  return { generated: occurrences, rules: plans.length };
+  return {
+    generated: occurrences,
+    rules: plans.length,
+    groupIds: [...new Set(plans.map((plan) => plan.rule.groupId))],
+  };
 }

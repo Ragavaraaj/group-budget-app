@@ -27,6 +27,7 @@ async function send(
   path: string,
   body: unknown,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<Response> {
   let response: Response;
   try {
@@ -37,6 +38,7 @@ async function send(
       headers: {
         accept: 'application/json',
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -74,8 +76,9 @@ export async function apiSend<S extends z.ZodType>(
   body: unknown,
   schema: S,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<z.infer<S>> {
-  const response = await send(method, path, body, signal);
+  const response = await send(method, path, body, signal, headers);
   return schema.parse(await response.json());
 }
 

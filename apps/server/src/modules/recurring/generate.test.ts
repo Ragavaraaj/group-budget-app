@@ -67,7 +67,7 @@ describe('generating recurring expenses', () => {
     await push(alice, [upsert('recurring', rule)]);
 
     const result = await generateDueExpenses(db, NOW());
-    expect(result).toEqual({ generated: 1, rules: 1 });
+    expect(result).toMatchObject({ generated: 1, rules: 1 });
 
     const [expense] = await allExpenses();
     expect(expense).toMatchObject({
@@ -102,12 +102,12 @@ describe('generating recurring expenses', () => {
   it('does nothing when nothing is due, and nothing the second time', async () => {
     const future = ruleData(groupId, alice.id, { startOn: addDays(today(), 5) });
     await push(alice, [upsert('recurring', future)]);
-    expect(await generateDueExpenses(db, NOW())).toEqual({ generated: 0, rules: 0 });
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
 
     const rule = ruleData(groupId, alice.id);
     await push(alice, [upsert('recurring', rule)]);
     await generateDueExpenses(db, NOW());
-    expect(await generateDueExpenses(db, NOW())).toEqual({ generated: 0, rules: 0 });
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
     expect(await allExpenses()).toHaveLength(1);
   });
 
@@ -148,7 +148,7 @@ describe('generating recurring expenses', () => {
     expect(second.generated).toBe(5);
     const third = await generateDueExpenses(db, NOW(), 5);
     expect(third.generated).toBe(3); // 13 occurrences in all: 12 weeks back … today
-    expect(await generateDueExpenses(db, NOW(), 5)).toEqual({ generated: 0, rules: 0 });
+    expect(await generateDueExpenses(db, NOW(), 5)).toMatchObject({ generated: 0, rules: 0 });
 
     const dates = (await allExpenses()).map((e) => e.occurredOn);
     expect(new Set(dates).size).toBe(13);
@@ -169,9 +169,9 @@ describe('generating recurring expenses', () => {
     await push(alice, [tombstone('delete', 'recurring', deleted.id, groupId, 1)]);
 
     // Only the one occurrence inside the ended rule's life is made, and then it has no next date.
-    expect(await generateDueExpenses(db, NOW())).toEqual({ generated: 1, rules: 1 });
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 1, rules: 1 });
     expect((await ruleRow(ended.id))?.nextDueOn).toBeNull();
-    expect(await generateDueExpenses(db, NOW())).toEqual({ generated: 0, rules: 0 });
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
   });
 
   it('waits when the person who made the rule has left the group', async () => {
@@ -182,7 +182,7 @@ describe('generating recurring expenses', () => {
     await push(bob, [upsert('recurring', rule)]);
     await bob.client.request(`/api/groups/${shared}/members/${bob.id}`, { method: 'DELETE' });
 
-    expect(await generateDueExpenses(db, NOW())).toEqual({ generated: 0, rules: 0 });
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
     expect(await allExpenses()).toHaveLength(0);
   });
 
@@ -267,7 +267,10 @@ describe('what a run costs', () => {
     );
     const counted = counting();
     const result = await generateDueExpenses(counted.db, NOW());
-    expect(result).toEqual({ generated: RECURRING_MAX_PER_RUN, rules: RECURRING_MAX_PER_RUN });
+    expect(result).toMatchObject({
+      generated: RECURRING_MAX_PER_RUN,
+      rules: RECURRING_MAX_PER_RUN,
+    });
     expect(counted.statements()).toBeLessThanOrEqual(40);
   });
 

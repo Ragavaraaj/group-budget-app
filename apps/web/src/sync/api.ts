@@ -20,9 +20,21 @@ export interface SyncApi {
   pull(query: PullQuery): Promise<PullResponse>;
 }
 
-export const httpSyncApi: SyncApi = {
+/**
+ * The real server. `liveId` names this device's live connection, sent with each push so the
+ * server doesn't wake the device that made the change (it pulls right after pushing anyway).
+ */
+export const createHttpSyncApi = (liveId: () => string | null = () => null): SyncApi => ({
   async push(mutations) {
-    const body = await apiSend('POST', '/api/sync/push', { mutations }, pushResponseSchema);
+    const id = liveId();
+    const body = await apiSend(
+      'POST',
+      '/api/sync/push',
+      { mutations },
+      pushResponseSchema,
+      undefined,
+      id ? { 'x-live-id': id } : undefined,
+    );
     return body.results;
   },
   pull({ since, limit, groupId }) {
@@ -31,4 +43,4 @@ export const httpSyncApi: SyncApi = {
     if (groupId !== undefined) params.set('groupId', groupId);
     return apiGet(`/api/sync/pull?${params}`, pullResponseSchema);
   },
-};
+});

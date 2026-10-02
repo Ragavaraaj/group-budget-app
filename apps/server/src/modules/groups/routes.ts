@@ -7,9 +7,10 @@ import {
   transferOwnershipRequestSchema,
   uuidSchema,
 } from '@budget/shared';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import type { AppEnv } from '../../app';
 import { requireAuth, session } from '../../middleware/session';
+import { activeMemberIds, afterResponse, executionOf, notifyUsers } from '../live/notify';
 import {
   acceptInvite,
   createGroup,
@@ -34,6 +35,15 @@ export function groupRoutes() {
   const groups = new Hono<AppEnv>();
   groups.use(session(), requireAuth());
 
+  /** Tells the group's members (and any extra people, such as someone just removed). */
+  const tellMembers = (c: Context<AppEnv>, groupId: string, extra: string[] = []) =>
+    afterResponse(
+      executionOf(c),
+      activeMemberIds(c.get('db'), [groupId]).then((members) =>
+        notifyUsers(c.env, [...members, ...extra]),
+      ),
+    );
+
   groups.post('/', async (c) => {
     const auth = c.get('auth');
     if (!auth) return c.json({ error: 'unauthorized' }, 401);
@@ -42,6 +52,7 @@ export function groupRoutes() {
 
     const result = await createGroup(c.get('db'), auth.user.id, parsed.data, Date.now());
     if (!result.ok) return c.json({ error: result.error }, 409);
+    afterResponse(executionOf(c), notifyUsers(c.env, [auth.user.id]));
     return c.json({ groupId: result.groupId }, 201);
   });
 
@@ -58,6 +69,7 @@ export function groupRoutes() {
       return c.json({ error: 'forbidden' }, 403);
     }
     await renameGroup(c.get('db'), groupId.data, parsed.data.name);
+    tellMembers(c, groupId.data);
     return c.json({ groupId: groupId.data });
   });
 
@@ -144,7 +156,10 @@ export function groupRoutes() {
       auth.user.id,
       parsed.data.userId,
     );
-    if (result.ok) return c.json({ ok: true });
+    if (result.ok) {
+      tellMembers(c, groupId.data);
+      return c.json({ ok: true });
+    }
     const status = { forbidden: 403, not_found: 404, invalid_target: 409 }[result.error];
     return c.json({ error: result.error }, status as 403 | 404 | 409);
   });
@@ -155,8 +170,12 @@ export function groupRoutes() {
     const groupId = uuidSchema.safeParse(c.req.param('groupId'));
     if (!groupId.success) return c.json({ error: 'invalid_request' }, 400);
 
+    // Who to tell has to be read first: afterwards nobody is a member any more.
+    const members = await activeMemberIds(c.get('db'), [groupId.data]);
     const result = await deleteGroup(c.get('db'), groupId.data, auth.user.id, Date.now());
-    return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 403);
+    if (!result.ok) return c.json({ error: result.error }, 403);
+    afterResponse(executionOf(c), notifyUsers(c.env, members));
+    return c.json({ ok: true });
   });
 
   groups.post('/:groupId/members/:userId/reinstate', async (c) => {
@@ -173,7 +192,10 @@ export function groupRoutes() {
       userId.data,
       Date.now(),
     );
-    if (result.ok) return c.json({ ok: true });
+    if (result.ok) {
+      tellMembers(c, groupId.data);
+      return c.json({ ok: true });
+    }
     const status = { forbidden: 403, not_found: 404, group_full: 409, too_many_groups: 409 }[
       result.error
     ];
@@ -194,7 +216,11 @@ export function groupRoutes() {
       userId.data,
       Date.now(),
     );
-    if (result.ok) return c.json({ ok: true });
+    if (result.ok) {
+      // The person who left or was removed is no longer a member, but needs to hear of it too.
+      tellMembers(c, groupId.data, [userId.data]);
+      return c.json({ ok: true });
+    }
     const status = { not_a_member: 404, not_found: 404, forbidden: 403, owner_cannot_leave: 409 }[
       result.error
     ];
@@ -230,6 +256,10 @@ export function inviteRoutes() {
       ];
       return c.json({ error: result.error }, status as 403 | 404 | 409);
     }
+    afterResponse(
+      executionOf(c),
+      activeMemberIds(c.get('db'), [result.groupId]).then((members) => notifyUsers(c.env, members)),
+    );
     return c.json({ groupId: result.groupId });
   });
 

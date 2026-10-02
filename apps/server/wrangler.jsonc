@@ -27,6 +27,11 @@
     }
   ],
 
+  // Live updates: one Durable Object holds the open WebSockets and tells devices "something
+  // changed, pull". SQLite-backed (the only kind the free plan offers), though it stores nothing.
+  "durable_objects": { "bindings": [{ "name": "LIVE_HUB", "class_name": "LiveHub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LiveHub"] }],
+
   // Hourly job: turns recurring expenses that have come due into expenses (UTC; the job itself
   // works in India's calendar day). One run is one Worker invocation, so it stays small.
   "triggers": { "crons": ["0 * * * *"] },

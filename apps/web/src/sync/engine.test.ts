@@ -530,6 +530,65 @@ describe('polling', () => {
     engine.stop();
   });
 
+  it('with the live connection up, syncs on news at once and polls only at the slowest interval', async () => {
+    const api = new FakeApi();
+    const engine = engineFor(api, {}, { pollMs: 30_000, maxPollMs: 300_000 });
+    engine.start();
+    await flush();
+    expect(api.pulls).toHaveLength(1);
+
+    engine.setLive(true); // coming up is a moment to catch up
+    await flush();
+    expect(engine.getSnapshot().live).toBe(true);
+    expect(api.pulls).toHaveLength(2);
+
+    // No 30-second polling any more: the next safety-net poll is five minutes away.
+    await advance(290_000);
+    expect(api.pulls).toHaveLength(2);
+    await advance(10_000);
+    expect(api.pulls).toHaveLength(3);
+
+    // News from the server syncs immediately.
+    engine.onLiveNews();
+    await flush();
+    expect(api.pulls).toHaveLength(4);
+    engine.stop();
+  });
+
+  it('when the live connection drops, polls at the normal pace again, after catching up once', async () => {
+    const api = new FakeApi();
+    const engine = engineFor(api, {}, { pollMs: 30_000, maxPollMs: 300_000 });
+    engine.start();
+    await flush();
+    engine.setLive(true);
+    await flush();
+    const before = api.pulls.length;
+
+    engine.setLive(false);
+    await flush();
+    expect(engine.getSnapshot().live).toBe(false);
+    expect(api.pulls).toHaveLength(before + 1); // one catch-up for what was missed
+
+    await advance(30_000);
+    expect(api.pulls).toHaveLength(before + 2);
+    engine.stop();
+  });
+
+  it('ignores a repeated live state, so a flapping connection does not cause extra syncs', async () => {
+    const api = new FakeApi();
+    const engine = engineFor(api);
+    engine.start();
+    await flush();
+    engine.setLive(true);
+    await flush();
+    const before = api.pulls.length;
+    engine.setLive(true);
+    engine.setLive(true);
+    await flush();
+    expect(api.pulls).toHaveLength(before);
+    engine.stop();
+  });
+
   it('stops polling while the app is hidden and syncs again when it comes back', async () => {
     const api = new FakeApi();
     const engine = engineFor(api, {}, { pollMs: 30_000 });
