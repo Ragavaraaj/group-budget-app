@@ -14,13 +14,15 @@
     "run_worker_first": ["/api/*"]
   },
 
-  // Create the real database with `wrangler d1 create group-budget --location apac` and put its
-  // id here. Local development and the tests use a simulated D1 and ignore this value.
+  // The production database (created with `wrangler d1 create group-budget --location apac`).
+  // An id is an identifier, not a secret. Local development and the tests use a simulated D1
+  // and ignore this value. The deploy job in CI skips itself while this is still the all-zero
+  // placeholder.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "group-budget",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "14372415-7a42-4e47-b822-69b8f4e98473",
       "migrations_dir": "drizzle"
     }
   ],
