@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { devSignIn, uniqueEmail } from './helpers';
 
 interface ManifestIcon {
   src: string;
@@ -32,11 +33,16 @@ test('opens, navigates and deep-links with no network after the first visit', as
   page,
   context,
 }) => {
-  await page.goto('/settings');
+  // First visit: the service worker installs and the app says it is ready for offline use.
+  await page.goto('/login');
   await expect(page.getByText('Ready to work offline')).toBeVisible();
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
+
+  await devSignIn(page, uniqueEmail('offline'));
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 
   // Online: the API is reachable through the same-origin proxy.
   await page.reload();
@@ -47,7 +53,10 @@ test('opens, navigates and deep-links with no network after the first visit', as
   // A full reload and a deep link both have to be answered by the precached shell.
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  await expect(page.getByText('Offline', { exact: true })).toBeVisible();
+  await expect(
+    page.locator('[data-slot="badge"]').getByText('Offline', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Offline' })).toBeVisible(); // the sync chip too
 
   await page.goto('/groups');
   await expect(page.getByRole('heading', { name: 'Groups' })).toBeVisible();
@@ -63,6 +72,8 @@ test('opens, navigates and deep-links with no network after the first visit', as
 });
 
 test('unknown routes show the in-app not-found page', async ({ page }) => {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('notfound'));
   await page.goto('/definitely-not-a-page');
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
 });

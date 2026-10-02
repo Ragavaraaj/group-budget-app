@@ -49,3 +49,16 @@ describe('API responses', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
 });
+
+describe('invalid configuration', () => {
+  it('answers a clean 500 instead of throwing from the error handler', async () => {
+    // The first middleware throws on this config, before any logger has been set.
+    const response = await createApp().request(
+      '/api/healthz',
+      {},
+      { ...env, ENVIRONMENT: 'staging' },
+    );
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'internal_error' });
+  });
+});

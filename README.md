@@ -10,9 +10,11 @@ One Worker serves the API and the built web app from the same origin, so there i
 cookies just work. Everything is TypeScript. The design, roadmap and decisions start at
 [`docs/PLAN.md`](docs/PLAN.md), which links to one document per topic (architecture, data model, sync, auth, repository layout, roadmap and so on).
 
-**Status:** M0 (foundations) is done and runs on Workers + D1: an installable PWA shell that reloads
-and deep-links offline, a Worker API with `/api/healthz`, and a Drizzle schema with its first
-migration. Accounts, expenses and groups are the next milestones.
+**Status:** milestones M0 to M2 are built: an offline-first personal ledger, Google sign-in (with a
+hand-back for the installed iPhone app), and shared groups with four split types, balances and
+settle-up. They are covered by unit tests (including inside the real Workers runtime) and by
+end-to-end tests in a real browser. Not yet done: the first real deploy, signing in with real Google,
+and a trial on real phones; the exact list is in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Quick start
 
@@ -27,6 +29,14 @@ npm run dev     # applies migrations to a local D1, then Worker on :8787 + Vite 
 
 Open <http://localhost:5173>. Vite proxies `/api` to the Worker (`wrangler dev`, which runs the real
 `workerd` runtime with a simulated D1 kept in `apps/server/.wrangler`).
+
+**Signing in locally needs no Google account.** `.dev.vars.example` turns on a development-only
+sign-in: type any email on the login screen, or press "Continue with Google" to get a small stand-in
+page that runs through the same callback code as the real flow. To try groups, sign in as two
+different emails in two browser profiles (each profile has its own local database). To use real
+Google locally, put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.dev.vars` and add
+`http://localhost:5173/api/auth/google/callback` to the OAuth client's redirect URIs
+([`docs/auth.md`](docs/auth.md)).
 
 ## Layout
 
@@ -46,8 +56,8 @@ Dependency direction is `web → shared ← server`; `shared` imports nothing of
 | --------------------------------------- | ------------------------------------------------------------------------- |
 | `npm run dev`                           | Local D1 migration, then Worker and Vite dev servers together             |
 | `npm run build`                         | Builds the web app, then bundles the Worker with a dry-run deploy         |
-| `npm test`                              | Unit tests (Vitest); the server's run inside `workerd` against a real D1  |
-| `npm run e2e`                           | Builds, then runs Playwright against `wrangler dev` serving the build     |
+| `npm test`                              | Unit tests (Vitest) for all three packages; the server's run inside `workerd` against a real D1 |
+| `npm run e2e`                           | Builds, then runs Playwright against `wrangler dev` serving the build (dev sign-in is on there) |
 | `npm run typecheck`                     | Regenerates Worker types, then `tsc` for every workspace                  |
 | `npm run lint`                          | Biome: lint, format and import-order check (read-only, what CI runs)      |
 | `npm run lint:fix` / `npm run format`   | Apply Biome's fixes / formatting                                          |
@@ -82,6 +92,11 @@ One-time setup:
 4. **Deploy**: merge to `main`, or open Actions, CI, Run workflow on `main`. The app is live at
    `https://group-budget.<your-subdomain>.workers.dev`. If Cloudflare says your account has no
    `workers.dev` subdomain yet, register one in the dashboard (Workers & Pages) and run it again.
+5. **Let people sign in.** The deployed app has no dev login, so create a Google OAuth client
+   ([`docs/auth.md`](docs/auth.md) has the steps) and store three **Worker secrets** from
+   `apps/server`: `npx wrangler secret put GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
+   `ALLOWED_EMAILS` (comma-separated: you, to bootstrap; everyone else joins through a group invite).
+   Use secrets, not plain dashboard variables: a deploy overwrites those, but never secrets.
 
 Optional: add required reviewers to a `production` environment (Settings, Environments) to approve
 each deploy by hand. A custom domain can be attached later in the dashboard; note that an installed

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { devSignIn, uniqueEmail } from './helpers';
 
 test('the app shell and client-side routes carry the security headers', async ({ request }) => {
   // "/groups" doesn't exist as a file: it is answered by the SPA fallback, which must carry them too.
@@ -35,10 +36,11 @@ test('the app runs with zero violations under the policy the Worker really serve
   });
 
   // Not vacuous: the page itself must have arrived with a policy attached.
-  const response = await page.goto('/');
+  const response = await page.goto('/login');
   expect(response?.headers()['content-security-policy']).toBeTruthy();
+  await devSignIn(page, uniqueEmail('csp'));
 
-  for (const path of ['/', '/groups', '/settings']) {
+  for (const path of ['/', '/groups', '/add', '/settings/categories', '/settings']) {
     await page.goto(path);
     await expect(page.getByRole('heading').first()).toBeVisible();
   }

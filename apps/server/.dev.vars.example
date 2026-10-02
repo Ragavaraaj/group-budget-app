@@ -3,8 +3,12 @@
 ENVIRONMENT=development
 LOG_LEVEL=debug
 
-# M1 (Google sign-in) — see docs/auth.md
+# Development-only sign-in: type any email, or use the stand-in for Google's screen. It is
+# impossible to enable in production (ENVIRONMENT defaults to production). See docs/auth.md.
+ENABLE_DEV_LOGIN=1
+
+# Real Google sign-in (optional locally; needed in production as Worker secrets):
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=
+# Emails allowed to create an account without a group invite (comma-separated):
 # ALLOWED_EMAILS=you@example.com
-# ENABLE_DEV_LOGIN=1
