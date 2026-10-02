@@ -3,6 +3,7 @@ import {
   addExpenseOn,
   daysAgo,
   devSignIn,
+  pickDate,
   runScheduledJob,
   uniqueEmail,
   waitForSynced,
@@ -171,10 +172,10 @@ test.describe('recurring expenses', () => {
     await page.getByLabel('Amount').fill('250');
     await page.getByLabel('What is it?').fill('Weekly help');
     await page.getByRole('radio', { name: 'Weekly' }).click();
-    await page.getByLabel('First on').fill(daysAgo(14));
+    await pickDate(page, 'First on', daysAgo(14));
     await expect(page.getByText(/already passed are added too/)).toBeVisible();
 
-    // The browser does not hold the form back for a date the hint says is fine.
+    // The form does not hold back a date the hint says is fine.
     await page.getByRole('button', { name: 'Add recurring expense' }).click();
     await expect(page.getByTestId('recurring-list')).toContainText('Weekly help');
     await waitForSynced(page);

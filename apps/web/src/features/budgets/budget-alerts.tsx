@@ -1,6 +1,6 @@
 import { evaluateBudgets, periodRange } from '@budget/shared';
 import { TriangleAlert } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { Card, CardContent } from '@/components/ui/card';
 import { useBudgets, useCategoryLookup, useExpensesInMonth, useMonthStartDay } from '@/db/hooks';
 import { currentPeriod } from '@/lib/format';
@@ -10,6 +10,7 @@ import { currentPeriod } from '@/lib/format';
  * Worked out on the device, so the warning appears even offline. Renders nothing when all is well.
  */
 export function BudgetAlerts({ groupId }: { groupId: string }) {
+  const location = useLocation();
   const startDay = useMonthStartDay();
   const budgets = useBudgets(groupId);
   const categories = useCategoryLookup(groupId);
@@ -31,7 +32,10 @@ export function BudgetAlerts({ groupId }: { groupId: string }) {
       data-testid="budget-alerts"
     >
       <CardContent>
-        <Link to={`/budgets?group=${groupId}`} className="flex gap-3">
+        <Link
+          to={`/budgets?group=${groupId}&from=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
+          className="flex gap-3"
+        >
           <TriangleAlert
             className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400"
             aria-hidden="true"
