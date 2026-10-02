@@ -1,0 +1,45 @@
+# Production stack for one small VPS. DRAFT: untested end to end until the first real deploy.
+# Run from this directory with a .env next to it (copy .env.example).
+services:
+  app:
+    image: ghcr.io/ragavaraaj/group-budget-app-server:${APP_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      APP_VERSION: ${APP_TAG:-latest}
+      LOG_LEVEL: info
+    env_file: .env
+    volumes:
+      - data:/data
+
+  litestream:
+    image: litestream/litestream:0.5
+    restart: unless-stopped
+    command: replicate -config /etc/litestream.yml
+    env_file: .env
+    volumes:
+      - data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    depends_on:
+      - app
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web:/srv/web:ro # the built apps/web/dist, copied here on each deploy
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:
