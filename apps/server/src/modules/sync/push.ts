@@ -1,17 +1,38 @@
-import type { EntityName, Mutation, MutationResult, RejectReason } from '@budget/shared';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  addDays,
+  type EntityName,
+  MAX_BUDGETS_PER_GROUP,
+  MAX_RECURRING_PER_GROUP,
+  type Mutation,
+  type MutationResult,
+  nextOccurrence,
+  RECURRING_MAX_BACKFILL_DAYS,
+  type RecurringData,
+  type RecurringRow,
+  type RejectReason,
+  toIndiaDate,
+} from '@budget/shared';
+import { and, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { reserveSeq, runBatch, seqFor } from '../../db/batch';
 import type { Db } from '../../db/client';
 import {
   auditLog,
+  budgets,
   categories,
   expenses,
   memberships,
   processedMutations,
+  recurringRules,
   settlements,
 } from '../../db/schema';
-import { toCategoryRow, toExpenseRow, toSettlementRow } from './mappers';
+import {
+  toBudgetRow,
+  toCategoryRow,
+  toExpenseRow,
+  toRecurringRow,
+  toSettlementRow,
+} from './mappers';
 
 type Statement = BatchItem<'sqlite'>;
 type Upsert = Extract<Mutation, { op: 'upsert' }>;
@@ -26,8 +47,24 @@ interface Known {
   snapshot: unknown;
 }
 
+/** What the server itself decides about a recurring rule (see `recurringServerFields`). */
+interface RecurringServer {
+  createdBy: string;
+  lastGeneratedOn: string | null;
+  nextDueOn: string | null;
+  /** A paused rule was switched on again in this edit. */
+  resumed: boolean;
+}
+
 type Write =
-  | { kind: 'upsert'; mutation: Upsert; version: number; before: unknown; after: unknown }
+  | {
+      kind: 'upsert';
+      mutation: Upsert;
+      version: number;
+      before: unknown;
+      after: unknown;
+      server?: RecurringServer;
+    }
   | { kind: 'delete' | 'restore'; mutation: Tombstone; before: unknown; after: unknown };
 
 interface Plan {
@@ -107,36 +144,53 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
     unique(todo.filter((m) => m.entity === entity).map(entityIdOf));
   const referencedCategories = unique(
     todo.flatMap((m) =>
-      m.op === 'upsert' && m.entity === 'expense' && m.data.categoryId ? [m.data.categoryId] : [],
+      m.op === 'upsert' &&
+      (m.entity === 'expense' || m.entity === 'budget' || m.entity === 'recurring') &&
+      m.data.categoryId
+        ? [m.data.categoryId]
+        : [],
     ),
   );
   const categoryIds = unique([...idsOf('category'), ...referencedCategories]);
 
-  const [memberRows, categoryRows, expenseRows, settlementRows] = await Promise.all([
-    db
-      .select({
-        groupId: memberships.groupId,
-        userId: memberships.userId,
-        removedAt: memberships.removedAt,
-      })
-      .from(memberships)
-      .where(inArray(memberships.groupId, groupIds)),
-    categoryIds.length > 0
-      ? db.select().from(categories).where(inArray(categories.id, categoryIds))
-      : [],
-    idsOf('expense').length > 0
-      ? db
-          .select()
-          .from(expenses)
-          .where(inArray(expenses.id, idsOf('expense')))
-      : [],
-    idsOf('settlement').length > 0
-      ? db
-          .select()
-          .from(settlements)
-          .where(inArray(settlements.id, idsOf('settlement')))
-      : [],
-  ]);
+  const [memberRows, categoryRows, expenseRows, settlementRows, budgetRows, recurringRows] =
+    await Promise.all([
+      db
+        .select({
+          groupId: memberships.groupId,
+          userId: memberships.userId,
+          removedAt: memberships.removedAt,
+        })
+        .from(memberships)
+        .where(inArray(memberships.groupId, groupIds)),
+      categoryIds.length > 0
+        ? db.select().from(categories).where(inArray(categories.id, categoryIds))
+        : [],
+      idsOf('expense').length > 0
+        ? db
+            .select()
+            .from(expenses)
+            .where(inArray(expenses.id, idsOf('expense')))
+        : [],
+      idsOf('settlement').length > 0
+        ? db
+            .select()
+            .from(settlements)
+            .where(inArray(settlements.id, idsOf('settlement')))
+        : [],
+      idsOf('budget').length > 0
+        ? db
+            .select()
+            .from(budgets)
+            .where(inArray(budgets.id, idsOf('budget')))
+        : [],
+      idsOf('recurring').length > 0
+        ? db
+            .select()
+            .from(recurringRules)
+            .where(inArray(recurringRules.id, idsOf('recurring')))
+        : [],
+    ]);
 
   // Only active members may write; anyone who was ever a member can still appear in an old split.
   const everMember = new Map<string, Set<string>>();
@@ -157,6 +211,14 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
   for (const row of settlementRows) {
     remember('settlement', { ...row, snapshot: toSettlementRow(row) });
   }
+  for (const row of budgetRows) remember('budget', { ...row, snapshot: toBudgetRow(row) });
+  for (const row of recurringRows) {
+    remember('recurring', { ...row, snapshot: toRecurringRow(row) });
+  }
+
+  // Groups can only hold so many budgets and rules. Counted only when something new is being
+  // created, and per group, so the common push (expenses) pays nothing for it.
+  const room = await roomLeft(db, todo, known);
 
   const plan: Plan = { results: [], writes: [], noops: [] };
   const reject = (m: Mutation, reason: RejectReason) =>
@@ -192,9 +254,22 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
         reject(m, 'invalid_reference');
         continue;
       }
+      if (existing === undefined && !room.take(m.entity, groupId)) {
+        reject(m, 'limit_reached');
+        continue;
+      }
       const version = (existing?.version ?? 0) + 1;
       const conflict =
         existing !== undefined && m.baseVersion !== null && m.baseVersion < existing.version;
+      const server =
+        m.entity === 'recurring'
+          ? recurringServerFields(
+              m.data,
+              existing?.snapshot as RecurringRow | undefined,
+              userId,
+              now,
+            )
+          : undefined;
       const after = {
         ...m.data,
         version,
@@ -202,6 +277,7 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
         updatedBy: userId,
         deletedAt: null,
         ...(m.entity === 'expense' || m.entity === 'settlement' ? { createdBy: userId } : {}),
+        ...(server ? { ...server, resumed: undefined } : {}),
       };
       plan.writes.push({
         kind: 'upsert',
@@ -209,6 +285,7 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
         version,
         before: existing?.snapshot ?? null,
         after,
+        ...(server ? { server } : {}),
       });
       known.set(key(m.entity, id), { groupId, version, deletedAt: null, snapshot: after });
       applied(m, version, conflict);
@@ -266,7 +343,92 @@ function referencesAreValid(
     }
     case 'settlement':
       return members.has(m.data.fromUser) && members.has(m.data.toUser);
+    case 'budget':
+      return categoryIsInGroup(m.data.categoryId, groupId, known);
+    case 'recurring': {
+      const { categoryId, payers, shares } = m.data;
+      return (
+        categoryIsInGroup(categoryId, groupId, known) &&
+        [...payers, ...shares].every((p) => members.has(p.userId))
+      );
+    }
   }
+}
+
+/** No category is fine; a named one must exist in this same group. */
+const categoryIsInGroup = (categoryId: string | null, groupId: string, known: Map<string, Known>) =>
+  categoryId === null || known.get(key('category', categoryId))?.groupId === groupId;
+
+/**
+ * Where a rule stands after an edit, worked out here because it is the server's to decide:
+ * the day the next expense is due, and the last one made. A paused rule has no next date. A
+ * rule that was paused and is switched on again starts from today rather than catching up on
+ * what it missed, and no rule goes back further than `RECURRING_MAX_BACKFILL_DAYS`.
+ */
+export function recurringServerFields(
+  data: RecurringData,
+  existing: RecurringRow | undefined,
+  userId: string,
+  now: number,
+): RecurringServer {
+  const today = toIndiaDate(new Date(now));
+  let last = existing?.lastGeneratedOn ?? null;
+  if (existing && !existing.active && data.active) {
+    const yesterday = addDays(today, -1);
+    if (last === null || last < yesterday) last = yesterday;
+  }
+  const floor = addDays(today, -RECURRING_MAX_BACKFILL_DAYS - 1);
+  const after = last !== null && last > floor ? last : floor;
+  return {
+    createdBy: existing?.createdBy ?? userId,
+    lastGeneratedOn: last,
+    nextDueOn: data.active ? nextOccurrence(data, after) : null,
+    resumed: existing !== undefined && !existing.active && data.active,
+  };
+}
+
+/** How many more budgets / rules each group may add, for the ones created in this push. */
+async function roomLeft(db: Db, todo: Mutation[], known: Map<string, Known>) {
+  const creating = (entity: 'budget' | 'recurring') =>
+    unique(
+      todo.flatMap((m) =>
+        m.op === 'upsert' && m.entity === entity && !known.has(key(entity, m.data.id))
+          ? [m.data.groupId]
+          : [],
+      ),
+    );
+  const [budgetGroups, ruleGroups] = [creating('budget'), creating('recurring')];
+
+  const used = new Map<string, number>();
+  if (budgetGroups.length > 0) {
+    const rows = await db
+      .select({ groupId: budgets.groupId, n: count() })
+      .from(budgets)
+      .where(and(inArray(budgets.groupId, budgetGroups), isNull(budgets.deletedAt)))
+      .groupBy(budgets.groupId);
+    for (const row of rows) used.set(`budget:${row.groupId}`, row.n);
+  }
+  if (ruleGroups.length > 0) {
+    const rows = await db
+      .select({ groupId: recurringRules.groupId, n: count() })
+      .from(recurringRules)
+      .where(and(inArray(recurringRules.groupId, ruleGroups), isNull(recurringRules.deletedAt)))
+      .groupBy(recurringRules.groupId);
+    for (const row of rows) used.set(`recurring:${row.groupId}`, row.n);
+  }
+
+  return {
+    /** Takes one place for a new row; false when the group is full. Other entities are unlimited. */
+    take(entity: EntityName, groupId: string): boolean {
+      if (entity !== 'budget' && entity !== 'recurring') return true;
+      const cap = entity === 'budget' ? MAX_BUDGETS_PER_GROUP : MAX_RECURRING_PER_GROUP;
+      const k = `${entity}:${groupId}`;
+      const n = used.get(k) ?? 0;
+      if (n >= cap) return false;
+      used.set(k, n + 1);
+      return true;
+    },
+  };
 }
 
 async function commit(db: Db, userId: string, plan: Plan, now: number): Promise<void> {
@@ -304,7 +466,7 @@ async function commit(db: Db, userId: string, plan: Plan, now: number): Promise<
 type Seq = ReturnType<typeof seqFor>;
 
 function rowStatement(db: Db, write: Write, userId: string, now: number, seq: Seq): Statement {
-  if (write.kind === 'upsert') return upsertStatement(db, write.mutation, userId, now, seq);
+  if (write.kind === 'upsert') return upsertStatement(db, write, userId, now, seq);
 
   const set = {
     deletedAt: write.kind === 'delete' ? now : null,
@@ -349,6 +511,30 @@ function rowStatement(db: Db, write: Write, userId: string, now: number, seq: Se
             wantDeleted ? isNull(settlements.deletedAt) : sql`${settlements.deletedAt} IS NOT NULL`,
           ),
         );
+    case 'budget':
+      return db
+        .update(budgets)
+        .set({ ...set, version: sql`${budgets.version} + 1` })
+        .where(
+          and(
+            eq(budgets.id, id),
+            eq(budgets.groupId, groupId),
+            wantDeleted ? isNull(budgets.deletedAt) : sql`${budgets.deletedAt} IS NOT NULL`,
+          ),
+        );
+    case 'recurring':
+      return db
+        .update(recurringRules)
+        .set({ ...set, version: sql`${recurringRules.version} + 1` })
+        .where(
+          and(
+            eq(recurringRules.id, id),
+            eq(recurringRules.groupId, groupId),
+            wantDeleted
+              ? isNull(recurringRules.deletedAt)
+              : sql`${recurringRules.deletedAt} IS NOT NULL`,
+          ),
+        );
   }
 }
 
@@ -356,7 +542,14 @@ function rowStatement(db: Db, write: Write, userId: string, now: number, seq: Se
  * Insert-or-update. Last writer wins, but never over a tombstone and never across groups
  * (the `WHERE` on the update), so a concurrent delete or a forged group id changes nothing.
  */
-function upsertStatement(db: Db, m: Upsert, userId: string, now: number, seq: Seq): Statement {
+function upsertStatement(
+  db: Db,
+  write: Extract<Write, { kind: 'upsert' }>,
+  userId: string,
+  now: number,
+  seq: Seq,
+): Statement {
+  const m = write.mutation;
   const sync = { updatedAt: now, updatedBy: userId, serverSeq: seq };
 
   switch (m.entity) {
@@ -436,6 +629,67 @@ function upsertStatement(db: Db, m: Upsert, userId: string, now: number, seq: Se
           target: settlements.id,
           set: { ...fields, ...sync, version: sql`${settlements.version} + 1` },
           setWhere: and(isNull(settlements.deletedAt), eq(settlements.groupId, data.groupId)),
+        });
+    }
+    case 'budget': {
+      const { data } = m;
+      const fields = { categoryId: data.categoryId, amountMinor: data.amountMinor };
+      return db
+        .insert(budgets)
+        .values({
+          id: data.id,
+          groupId: data.groupId,
+          ...fields,
+          version: 1,
+          deletedAt: null,
+          ...sync,
+        })
+        .onConflictDoUpdate({
+          target: budgets.id,
+          set: { ...fields, ...sync, version: sql`${budgets.version} + 1` },
+          setWhere: and(isNull(budgets.deletedAt), eq(budgets.groupId, data.groupId)),
+        });
+    }
+    case 'recurring': {
+      const { data } = m;
+      const fields = {
+        frequency: data.frequency,
+        startOn: data.startOn,
+        endOn: data.endOn,
+        active: data.active,
+        amountMinor: data.amountMinor,
+        categoryId: data.categoryId,
+        note: data.note,
+        splitType: data.splitType,
+        payers: data.payers,
+        shares: data.shares,
+      };
+      const { createdBy, lastGeneratedOn, nextDueOn, resumed } = write.server as RecurringServer;
+      return db
+        .insert(recurringRules)
+        .values({
+          id: data.id,
+          groupId: data.groupId,
+          ...fields,
+          createdBy,
+          lastGeneratedOn,
+          nextDueOn,
+          version: 1,
+          deletedAt: null,
+          ...sync,
+        })
+        .onConflictDoUpdate({
+          target: recurringRules.id,
+          // `createdBy` is never touched. The last date made only moves when a paused rule
+          // resumes: otherwise the scheduled job may have moved it since this was planned.
+          set: {
+            ...fields,
+            nextDueOn,
+            ...(resumed ? { lastGeneratedOn } : {}),
+            ...sync,
+            version: sql`${recurringRules.version} + 1`,
+          },
+          setWhere: and(isNull(recurringRules.deletedAt), eq(recurringRules.groupId, data.groupId)),
         });
     }
   }

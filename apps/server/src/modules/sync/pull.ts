@@ -2,13 +2,24 @@ import { PULL_DEFAULT_LIMIT, type PullResponse } from '@budget/shared';
 import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Db } from '../../db/client';
-import { categories, expenses, groups, memberships, settlements, users } from '../../db/schema';
+import {
+  budgets,
+  categories,
+  expenses,
+  groups,
+  memberships,
+  recurringRules,
+  settlements,
+  users,
+} from '../../db/schema';
 import {
   type MemberJoinRow,
+  toBudgetRow,
   toCategoryRow,
   toExpenseRow,
   toGroupRow,
   toMemberRow,
+  toRecurringRow,
   toSettlementRow,
 } from './mappers';
 
@@ -64,80 +75,101 @@ export async function pullChanges(
     avatarUrl: users.avatarUrl,
   };
 
-  const [groupRows, groupMembers, ownMembers, categoryRows, expenseRows, settlementRows, access] =
-    await db.batch([
-      db
-        .select()
-        .from(groups)
-        .where(
-          and(
-            gt(groups.serverSeq, since),
-            groupId ? eq(groups.id, groupId) : inArray(groups.id, myGroups),
-          ),
-        )
-        .orderBy(asc(groups.serverSeq))
-        .limit(take),
-      db
-        .select(memberColumns)
-        .from(memberships)
-        .innerJoin(users, eq(users.id, memberships.userId))
-        .where(and(gt(memberships.serverSeq, since), inScope(memberships.groupId)))
-        .orderBy(asc(memberships.serverSeq))
-        .limit(take),
-      // The caller's own membership rows, including a removal, which must reach their devices
-      // even though they can no longer see the group.
-      groupId
-        ? db
-            .select(memberColumns)
-            .from(memberships)
-            .innerJoin(users, eq(users.id, memberships.userId))
-            .where(
-              and(
-                eq(memberships.userId, userId),
-                eq(memberships.groupId, groupId),
-                gt(memberships.serverSeq, since),
-              ),
-            )
-            .limit(1)
-        : db
-            .select(memberColumns)
-            .from(memberships)
-            .innerJoin(users, eq(users.id, memberships.userId))
-            .where(and(eq(memberships.userId, userId), gt(memberships.serverSeq, since)))
-            .orderBy(asc(memberships.serverSeq))
-            .limit(take),
-      db
-        .select()
-        .from(categories)
-        .where(and(gt(categories.serverSeq, since), inScope(categories.groupId)))
-        .orderBy(asc(categories.serverSeq))
-        .limit(take),
-      db
-        .select()
-        .from(expenses)
-        .where(and(gt(expenses.serverSeq, since), inScope(expenses.groupId)))
-        .orderBy(asc(expenses.serverSeq))
-        .limit(take),
-      db
-        .select()
-        .from(settlements)
-        .where(and(gt(settlements.serverSeq, since), inScope(settlements.groupId)))
-        .orderBy(asc(settlements.serverSeq))
-        .limit(take),
-      groupId
-        ? db
-            .select({ id: memberships.groupId })
-            .from(memberships)
-            .where(
-              and(
-                eq(memberships.userId, userId),
-                eq(memberships.groupId, groupId),
-                isNull(memberships.removedAt),
-              ),
-            )
-            .limit(1)
-        : db.select({ id: memberships.groupId }).from(memberships).limit(0),
-    ]);
+  const [
+    groupRows,
+    groupMembers,
+    ownMembers,
+    categoryRows,
+    expenseRows,
+    settlementRows,
+    budgetRows,
+    recurringRows,
+    access,
+  ] = await db.batch([
+    db
+      .select()
+      .from(groups)
+      .where(
+        and(
+          gt(groups.serverSeq, since),
+          groupId ? eq(groups.id, groupId) : inArray(groups.id, myGroups),
+        ),
+      )
+      .orderBy(asc(groups.serverSeq))
+      .limit(take),
+    db
+      .select(memberColumns)
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(and(gt(memberships.serverSeq, since), inScope(memberships.groupId)))
+      .orderBy(asc(memberships.serverSeq))
+      .limit(take),
+    // The caller's own membership rows, including a removal, which must reach their devices
+    // even though they can no longer see the group.
+    groupId
+      ? db
+          .select(memberColumns)
+          .from(memberships)
+          .innerJoin(users, eq(users.id, memberships.userId))
+          .where(
+            and(
+              eq(memberships.userId, userId),
+              eq(memberships.groupId, groupId),
+              gt(memberships.serverSeq, since),
+            ),
+          )
+          .limit(1)
+      : db
+          .select(memberColumns)
+          .from(memberships)
+          .innerJoin(users, eq(users.id, memberships.userId))
+          .where(and(eq(memberships.userId, userId), gt(memberships.serverSeq, since)))
+          .orderBy(asc(memberships.serverSeq))
+          .limit(take),
+    db
+      .select()
+      .from(categories)
+      .where(and(gt(categories.serverSeq, since), inScope(categories.groupId)))
+      .orderBy(asc(categories.serverSeq))
+      .limit(take),
+    db
+      .select()
+      .from(expenses)
+      .where(and(gt(expenses.serverSeq, since), inScope(expenses.groupId)))
+      .orderBy(asc(expenses.serverSeq))
+      .limit(take),
+    db
+      .select()
+      .from(settlements)
+      .where(and(gt(settlements.serverSeq, since), inScope(settlements.groupId)))
+      .orderBy(asc(settlements.serverSeq))
+      .limit(take),
+    db
+      .select()
+      .from(budgets)
+      .where(and(gt(budgets.serverSeq, since), inScope(budgets.groupId)))
+      .orderBy(asc(budgets.serverSeq))
+      .limit(take),
+    db
+      .select()
+      .from(recurringRules)
+      .where(and(gt(recurringRules.serverSeq, since), inScope(recurringRules.groupId)))
+      .orderBy(asc(recurringRules.serverSeq))
+      .limit(take),
+    groupId
+      ? db
+          .select({ id: memberships.groupId })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.userId, userId),
+              eq(memberships.groupId, groupId),
+              isNull(memberships.removedAt),
+            ),
+          )
+          .limit(1)
+      : db.select({ id: memberships.groupId }).from(memberships).limit(0),
+  ]);
 
   // Asking for one group you don't belong to is a caller error, not an empty page.
   if (groupId && access.length === 0) return null;
@@ -156,6 +188,8 @@ export async function pullChanges(
     categories: page(categoryRows.map(toCategoryRow), limit),
     expenses: page(expenseRows.map(toExpenseRow), limit),
     settlements: page(settlementRows.map(toSettlementRow), limit),
+    budgets: page(budgetRows.map(toBudgetRow), limit),
+    recurring: page(recurringRows.map(toRecurringRow), limit),
   };
   // The two member queries were limited separately; if either was cut, the merged list is too.
   if (groupMembers.length > limit || ownMembers.length > limit) pages.members.truncated = true;
@@ -179,6 +213,8 @@ export async function pullChanges(
     categories: upTo(pages.categories),
     expenses: upTo(pages.expenses),
     settlements: upTo(pages.settlements),
+    budgets: upTo(pages.budgets),
+    recurring: upTo(pages.recurring),
   };
 }
 

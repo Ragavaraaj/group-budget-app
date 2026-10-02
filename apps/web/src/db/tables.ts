@@ -13,6 +13,8 @@ export function entityTables(db: BudgetDb): Record<EntityName, Table<SyncedRow, 
     category: db.categories as unknown as Table<SyncedRow, string>,
     expense: db.expenses as unknown as Table<SyncedRow, string>,
     settlement: db.settlements as unknown as Table<SyncedRow, string>,
+    budget: db.budgets as unknown as Table<SyncedRow, string>,
+    recurring: db.recurring as unknown as Table<SyncedRow, string>,
   };
 }
 

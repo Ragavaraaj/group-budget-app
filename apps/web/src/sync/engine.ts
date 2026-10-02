@@ -2,7 +2,7 @@ import { MAX_MUTATIONS_PER_PUSH, type Mutation, type MutationResult } from '@bud
 import { applyPull, BACKFILL_PREFIX } from '@/db/apply';
 import { type BudgetDb, getMeta, setMeta } from '@/db/database';
 import { onLocalWrite } from '@/db/repo';
-import { tableFor } from '@/db/tables';
+import { entityTables, tableFor } from '@/db/tables';
 import { entityKey, type OutboxEntry, type Rejection } from '@/db/types';
 import { ApiError, NetworkError } from '@/lib/api';
 import type { SyncApi } from './api';
@@ -250,7 +250,7 @@ export class SyncEngine {
 
     await this.db.transaction(
       'rw',
-      [this.db.outbox, this.db.meta, this.db.categories, this.db.expenses, this.db.settlements],
+      [this.db.outbox, this.db.meta, ...Object.values(entityTables(this.db))],
       async () => {
         for (const entry of entries) {
           const result = byId.get(entry.mutationId);

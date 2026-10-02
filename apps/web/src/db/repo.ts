@@ -1,4 +1,11 @@
-import type { CategoryData, EntityName, ExpenseData, SettlementData } from '@budget/shared';
+import type {
+  BudgetData,
+  CategoryData,
+  EntityName,
+  ExpenseData,
+  RecurringData,
+  SettlementData,
+} from '@budget/shared';
 import { uuidv7 } from '@budget/shared';
 import type { BudgetDb } from './database';
 import { tableFor } from './tables';
@@ -111,6 +118,31 @@ export function saveSettlement(db: BudgetDb, me: string, data: SettlementData): 
   }));
 }
 
+export function saveBudget(db: BudgetDb, me: string, data: BudgetData): Promise<void> {
+  return upsert(db, 'budget', data, (existing) => ({
+    ...data,
+    ...meta(existing, me, Date.now()),
+  }));
+}
+
+/**
+ * `lastGeneratedOn` is the server's to move (it creates the expenses), so an edit keeps whatever
+ * this device last heard; the next pull brings the real value.
+ */
+export function saveRecurring(db: BudgetDb, me: string, data: RecurringData): Promise<void> {
+  return upsert(db, 'recurring', data, (existing) => {
+    const known = existing as unknown as
+      | { createdBy?: string; lastGeneratedOn?: string | null }
+      | undefined;
+    return {
+      ...data,
+      createdBy: known?.createdBy ?? me,
+      lastGeneratedOn: known?.lastGeneratedOn ?? null,
+      ...meta(existing, me, Date.now()),
+    };
+  });
+}
+
 /** Deletes (tombstones) or restores a row. A tombstone is kept so the delete reaches the server. */
 async function setDeleted(
   db: BudgetDb,
@@ -151,3 +183,9 @@ export const deleteSettlement = (db: BudgetDb, me: string, id: string) =>
   setDeleted(db, 'settlement', id, me, true);
 export const restoreSettlement = (db: BudgetDb, me: string, id: string) =>
   setDeleted(db, 'settlement', id, me, false);
+export const deleteBudget = (db: BudgetDb, me: string, id: string) =>
+  setDeleted(db, 'budget', id, me, true);
+export const deleteRecurring = (db: BudgetDb, me: string, id: string) =>
+  setDeleted(db, 'recurring', id, me, true);
+export const restoreRecurring = (db: BudgetDb, me: string, id: string) =>
+  setDeleted(db, 'recurring', id, me, false);

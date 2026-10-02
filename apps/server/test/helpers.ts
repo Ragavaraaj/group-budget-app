@@ -73,6 +73,8 @@ export class Client {
 const TABLES = [
   'audit_log',
   'processed_mutations',
+  'budgets',
+  'recurring_rules',
   'expenses',
   'settlements',
   'categories',

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { uuidv7 } from '../ids';
-import { expenseDataSchema, settlementDataSchema } from './entities';
+import {
+  budgetDataSchema,
+  expenseDataSchema,
+  recurringDataSchema,
+  settlementDataSchema,
+} from './entities';
 import { pullQuerySchema, pushRequestSchema } from './sync';
 
 const [a, b, group, category] = [uuidv7(), uuidv7(), uuidv7(), uuidv7()];
@@ -134,5 +139,73 @@ describe('pushRequestSchema duplicates', () => {
       data: expense(),
     };
     expect(pushRequestSchema.safeParse({ mutations: [one, one] }).success).toBe(false);
+  });
+});
+
+describe('budgetDataSchema', () => {
+  const budget = (overrides: Record<string, unknown> = {}) => ({
+    id: uuidv7(),
+    groupId: group,
+    categoryId: category,
+    amountMinor: 500_000,
+    ...overrides,
+  });
+
+  it('accepts a category budget and an overall one', () => {
+    expect(budgetDataSchema.safeParse(budget()).success).toBe(true);
+    expect(budgetDataSchema.safeParse(budget({ categoryId: null })).success).toBe(true);
+  });
+
+  it('needs a positive whole number of paise', () => {
+    for (const amountMinor of [0, -1, 10.5]) {
+      expect(budgetDataSchema.safeParse(budget({ amountMinor })).success).toBe(false);
+    }
+  });
+});
+
+describe('recurringDataSchema', () => {
+  const rule = (overrides: Record<string, unknown> = {}) => {
+    const { occurredOn: _ignored, ...rest } = expense();
+    return {
+      ...rest,
+      frequency: 'monthly',
+      startOn: '2026-11-01',
+      endOn: null,
+      active: true,
+      ...overrides,
+    };
+  };
+
+  it('accepts a balanced monthly rule, with or without an end', () => {
+    expect(recurringDataSchema.safeParse(rule()).success).toBe(true);
+    expect(recurringDataSchema.safeParse(rule({ endOn: '2027-03-01' })).success).toBe(true);
+  });
+
+  it('keeps the same split checks as an expense', () => {
+    expect(
+      recurringDataSchema.safeParse(rule({ payers: [{ userId: a, amountMinor: 1 }] })).success,
+    ).toBe(false);
+  });
+
+  it('refuses an end before the start, an unknown frequency and a bad date', () => {
+    expect(recurringDataSchema.safeParse(rule({ endOn: '2026-10-01' })).success).toBe(false);
+    expect(recurringDataSchema.safeParse(rule({ frequency: 'daily' })).success).toBe(false);
+    expect(recurringDataSchema.safeParse(rule({ startOn: '2026-02-30' })).success).toBe(false);
+  });
+
+  it('can be pushed as a mutation', () => {
+    const result = pushRequestSchema.safeParse({
+      mutations: [
+        {
+          mutationId: uuidv7(),
+          baseVersion: null,
+          createdAt: 1,
+          op: 'upsert',
+          entity: 'recurring',
+          data: rule(),
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
   });
 });

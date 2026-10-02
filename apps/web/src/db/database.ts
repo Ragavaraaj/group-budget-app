@@ -1,9 +1,11 @@
 import Dexie, { type Table } from 'dexie';
 import type {
+  LocalBudget,
   LocalCategory,
   LocalExpense,
   LocalGroup,
   LocalMember,
+  LocalRecurring,
   LocalSettlement,
   MetaRow,
   OutboxEntry,
@@ -20,6 +22,8 @@ export class BudgetDb extends Dexie {
   categories!: Table<LocalCategory, string>;
   expenses!: Table<LocalExpense, string>;
   settlements!: Table<LocalSettlement, string>;
+  budgets!: Table<LocalBudget, string>;
+  recurring!: Table<LocalRecurring, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<MetaRow, string>;
 
@@ -33,6 +37,11 @@ export class BudgetDb extends Dexie {
       settlements: 'id, groupId',
       outbox: '++seq, mutationId, entityKey',
       meta: 'key',
+    });
+    // Budgets and recurring rules came later; adding tables leaves existing data as it is.
+    this.version(2).stores({
+      budgets: 'id, groupId',
+      recurring: 'id, groupId',
     });
   }
 }

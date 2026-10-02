@@ -1,4 +1,5 @@
 import {
+  type BudgetRow,
   type CategoryRow,
   type ExpenseRow,
   type GroupRow,
@@ -6,6 +7,7 @@ import {
   type Mutation,
   type MutationResult,
   type PullResponse,
+  type RecurringRow,
   uuidv7,
 } from '@budget/shared';
 import { ApiError } from '@/lib/api';
@@ -19,6 +21,8 @@ export const emptyPull = (overrides: Partial<PullResponse> = {}): PullResponse =
   categories: [],
   expenses: [],
   settlements: [],
+  budgets: [],
+  recurring: [],
   ...overrides,
 });
 
@@ -87,6 +91,50 @@ export const categoryRow = (
   icon: 'utensils',
   color: '#ff0000',
   archived: false,
+  version: 1,
+  updatedAt: 1,
+  updatedBy: userId,
+  deletedAt: null,
+  serverSeq: 1,
+  ...overrides,
+});
+
+export const budgetRow = (
+  groupId: string,
+  userId: string,
+  overrides: Partial<BudgetRow> = {},
+): BudgetRow => ({
+  id: uuidv7(),
+  groupId,
+  categoryId: null,
+  amountMinor: 500_000,
+  version: 1,
+  updatedAt: 1,
+  updatedBy: userId,
+  deletedAt: null,
+  serverSeq: 1,
+  ...overrides,
+});
+
+export const recurringRow = (
+  groupId: string,
+  userId: string,
+  overrides: Partial<RecurringRow> = {},
+): RecurringRow => ({
+  id: uuidv7(),
+  groupId,
+  frequency: 'monthly',
+  startOn: '2026-11-01',
+  endOn: null,
+  active: true,
+  amountMinor: 1_000,
+  categoryId: null,
+  note: 'Rent',
+  splitType: 'equal',
+  payers: [{ userId, amountMinor: 1_000 }],
+  shares: [{ userId, amountMinor: 1_000 }],
+  createdBy: userId,
+  lastGeneratedOn: null,
   version: 1,
   updatedAt: 1,
   updatedBy: userId,

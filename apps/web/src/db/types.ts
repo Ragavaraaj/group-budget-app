@@ -1,4 +1,6 @@
 import type {
+  BudgetData,
+  BudgetRow,
   CategoryData,
   CategoryRow,
   EntityName,
@@ -6,6 +8,8 @@ import type {
   ExpenseRow,
   GroupRow,
   MemberRow,
+  RecurringData,
+  RecurringRow,
   SettlementData,
   SettlementRow,
 } from '@budget/shared';
@@ -17,6 +21,8 @@ export type LocalMember = MemberRow;
 export type LocalCategory = CategoryRow;
 export type LocalExpense = ExpenseRow;
 export type LocalSettlement = SettlementRow;
+export type LocalBudget = BudgetRow;
+export type LocalRecurring = RecurringRow;
 
 /** The columns every synced entity has, which is all the sync code needs to know. */
 export interface SyncedRow {
@@ -41,7 +47,7 @@ export interface OutboxEntry {
   groupId: string;
   op: 'upsert' | 'delete' | 'restore';
   baseVersion: number | null;
-  data?: CategoryData | ExpenseData | SettlementData;
+  data?: CategoryData | ExpenseData | SettlementData | BudgetData | RecurringData;
   createdAt: number;
 }
 
