@@ -9,7 +9,8 @@ group-budget-app/
 ├─ docs/PLAN.md            (plus one document per topic)
 ├─ packages/
 │  └─ shared/              @budget/shared — pure TS, no I/O
-│     └─ src/              money · dates · ids (UUIDv7) · crypto (token + SHA-256, one copy for both sides) · splits · balances (+ settle-up)
+│     └─ src/              money · dates · periods (month start day, Indian FY) · ids (UUIDv7) · crypto (token + SHA-256, one copy for both sides) · splits · balances (+ settle-up)
+│                          reports (summaries, trends) · budgets (status) · recurring (dates, derived ids)
 │                          limits · defaults (default categories)
 │                          schemas/ (zod: entities, sync mutations/pull, API payloads) · index.ts
 ├─ apps/
@@ -20,7 +21,7 @@ group-budget-app/
 │  │  ├─ drizzle/          generated SQL migrations (committed; applied by Wrangler)
 │  │  ├─ test/             apply-migrations · helpers (cookie-keeping Client) · sync-helpers
 │  │  └─ src/
-│  │     ├─ index.ts       the Worker: default-exports the Hono app
+│  │     ├─ index.ts       the Worker: fetch (Hono app, and /api/live), scheduled, exports LiveHub
 │  │     ├─ app.ts         Hono app factory (what tests import)
 │  │     ├─ config.ts      bindings → validated config (zod); secure-by-default
 │  │     ├─ logger.ts      one JSON line per event (Workers Logs)
@@ -28,7 +29,9 @@ group-budget-app/
 │  │     ├─ modules/
 │  │     │  ├─ auth/       routes (Google, attempt-login, dev) · repo · google (arctic) · pages · cookies · tokens · me
 │  │     │  ├─ sync/       routes · push · pull · mappers
-│  │     │  └─ groups/     routes · repo (groups, invites, members)
+│  │     │  ├─ groups/     routes · repo (groups, invites, members, hand-over, delete, placeholders)
+│  │     │  ├─ recurring/  generate (the hourly job)
+│  │     │  └─ live/       hub (the Durable Object) · connect (/api/live) · notify
 │  │     └─ middleware/    request-logger · session · origin-check
 │  └─ web/                 @budget/web — React + Vite PWA
 │     ├─ index.html · vite.config.ts · vitest.config.ts · components.json (shadcn)
@@ -39,13 +42,14 @@ group-budget-app/
 │        ├─ components/    app shell, sync chip, banners, category icons, spinner
 │        ├─ lib/           utils (cn) · api client · format · export · local-errors · zod-config.ts
 │        ├─ db/            Dexie schema · tables (entity → table) · repo (local writes + outbox) · apply (pulled rows) · hooks (live queries)
-│        ├─ sync/          api · engine (push, pull, backfill, polling)
+│        ├─ sync/          api · engine (push, pull, backfill, polling) · live (WebSocket channel)
 │        ├─ auth/          auth context · sync/db provider · attempt-login · storage
 │        ├─ features/      auth · expenses · categories · groups · settings · status
+│        │                 insights · budgets · search · recurring · import
 │        │                 each: pages, components, pure helpers (with tests beside them)
 │        └─ pwa/           SW registration · install prompt · update toast
-├─ e2e/                    Playwright specs (pwa · security-headers · auth · ledger · groups)
-└─ .github/workflows/      ci.yml (checks on PRs; merge to main also deploys)
+├─ e2e/                    Playwright specs (pwa · security-headers · auth · ledger · groups · insights · planning · import · live)
+└─ .github/workflows/      ci.yml (checks on PRs; merge to main also deploys) · backup.yml (nightly D1 export to R2, gated)
 ```
 
 **Dependency rules** (enforced by Biome's `noRestrictedImports`, for both package-name and relative imports):

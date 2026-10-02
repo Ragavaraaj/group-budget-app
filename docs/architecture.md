@@ -21,6 +21,8 @@ The UI reads and writes only the **local IndexedDB**. A sync engine reconciles w
         │   /api/auth/google/start|callback  /attempt/*  /logout  /me │
         │   /api/sync/push|pull   (JSON + zod)                        │
         │   /api/groups/*  /api/invites/*     (online-only actions)   │
+        │ /api/live ── WebSocket ──► Durable Object LiveHub           │
+        │ cron, hourly ──► recurring-expense job                      │
         │            │  modules/*/repo (Drizzle)                      │
         │            ▼                                                │
         │       D1 (SQLite) ── Time Travel backups                    │
@@ -29,10 +31,13 @@ The UI reads and writes only the **local IndexedDB**. A sync engine reconciles w
 
 **Rules that keep the code clean**
 
-1. Reads of business data in the UI come from Dexie. Writes go to Dexie + outbox, then sync. Only auth, group management (create, rename, remove/leave) and invites call the API directly (they need the server's say-so, so they are online-only); their results come back through the normal pull.
+1. Reads of business data in the UI come from Dexie. Writes go to Dexie + outbox, then sync. Only auth, group management (create, rename, remove/leave, hand over, delete, add someone without the app) and invites call the API directly (they need the server's say-so, so they are online-only); their results come back through the normal pull.
 2. Server code touches the database only through each module's `repo`, never from route handlers directly.
 3. Pure logic (money, splits, balances, settle-up, zod schemas) lives in `packages/shared` with no I/O, so it runs identically in the browser, the Worker and tests.
 4. **Same-origin everywhere**: in production one Worker serves the API and the static files; in development Vite proxies `/api/*` to `wrangler dev`. No CORS, and cookies just work.
 5. **D1 has no interactive transactions** (no `BEGIN`/`COMMIT` from the Worker). Do reads and validation first, then write everything in a single `db.batch([...])`, which commits or rolls back as a whole. This is verified by a test (`apps/server/src/db/schema.test.ts`: a failing statement rolls back the other statements in its batch).
 6. **Every per-request query must use an index.** D1 limits are counted in rows _scanned_, not rows returned, so an unindexed filter on a growing table is both slow and a quota problem ([Infrastructure](infrastructure.md)).
 7. **Config comes from Worker bindings**, parsed once with zod (`apps/server/src/config.ts`). `ENVIRONMENT` defaults to `production`, so a deployed Worker is safe unless something explicitly says otherwise (only `.dev.vars` and the test config do).
+8. **Live updates are an optimisation, never a dependency.** The hub only tells a device to pull; if the socket is down, polling still brings every change, so nothing correct depends on the Durable Object being reachable. Notifications are sent after the response and their failure is ignored.
+9. **Work the server does on its own** (the recurring job) goes through the same sequence numbers, indexes and atomic batches as a request, in runs small enough for the free plan's 50-queries-per-invocation limit, and is safe to repeat.
+

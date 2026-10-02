@@ -6,7 +6,7 @@ IDs are **UUIDv7** generated on the device (sortable; makes offline creates idem
 `apps/server/src/db/schema/*.ts`; migrations: `apps/server/drizzle/`.
 
 ```
-users            id, google_sub (unique), email, display_name, avatar_url, created_at, last_login_at
+users            id, google_sub (unique), email, display_name, avatar_url, created_at, last_login_at, is_placeholder   -- a placeholder has google_sub 'placeholder:<id>' and can never sign in
 sessions         id_hash, user_id, expires_at, user_agent, created_at
 oauth_states     state_hash, code_verifier, attempt_hash?, invite_token?, created_at, expires_at   -- a Google sign-in in progress
 login_attempts   id_hash, user_id?, confirm_hash?, invite_token?, created_at, expires_at, confirmed_at?, consumed_at?   -- installed-app sign-in ([Auth](auth.md))
@@ -17,6 +17,10 @@ categories       id, group_id, name, icon, color, archived                      
 expenses         id, group_id, occurred_on (local date), amount_minor, category_id?, note,
                  split_type, payers (JSON), shares (JSON), created_by           (+ sync cols)
 settlements      id, group_id, from_user, to_user, amount_minor, occurred_on, note, created_by   (+ sync cols)
+budgets          id, group_id, category_id? (null = the whole group), amount_minor              (+ sync cols)   -- a monthly limit
+recurring_rules  id, group_id, frequency (weekly|monthly|yearly), start_on, end_on?, active,
+                 amount_minor, category_id?, note, split_type, payers (JSON), shares (JSON),
+                 created_by, last_generated_on?, next_due_on?                                   (+ sync cols)   -- the last two are the scheduled job's
 processed_mutations  mutation_id (primary key), user_id, applied_at            -- idempotency
 audit_log        id, mutation_id, user_id, group_id, entity, entity_id, before, after, at   -- append-only
 sync_counter     id (=1), value                                                -- see below
@@ -24,7 +28,7 @@ sync_counter     id (=1), value                                                -
 (+ sync cols) = version, updated_at, updated_by, deleted_at (tombstone), server_seq
 ```
 
-Not built yet: `budgets` and `recurring_rules` (M3).
+`budgets` and `recurring_rules` were added in M3 (migration 0004) and `users.is_placeholder` in M4 (0005). A rule carries the same split an expense does; it is the **template** the scheduled job copies. Which occurrences have been made is the server's to track: `last_generated_on` and `next_due_on` are never in a client's mutation, and the job moves them **without bumping `version`**, so a person editing a rule at the same moment is not told they conflicted with a machine. `next_due_on` is indexed (`recurring_due_idx`), so finding what is due reads only the due rules, and is null for a paused or finished rule.
 
 Rules:
 
@@ -39,9 +43,15 @@ Rules:
 - **Settle-up** uses greedy debt simplification (min-cash-flow) to minimise the number of transfers; a payment is recorded as a `settlement` row.
 - **Activity feed** is built from the rows themselves: each carries `updated_by`/`updated_at`, a `version` (1 means "added") and a tombstone, so no separate log has to sync. `audit_log` is for diagnosis and recovery only.
 - **Personal ledger** = a group with `is_personal = true` and a single member, created with the account at first sign-in, together with ten default categories. One code path for personal and shared groups. Shared groups get the same default categories when created.
-- Never hard-delete synced rows; tombstone them. A member who leaves or is removed keeps their membership row with `removed_at` set (so the change reaches their devices) and `removed_by` saying who ended it, and stays in old expenses.
+- Never hard-delete synced rows; tombstone them. (The one exception is deleting a whole group, below.) A member who leaves or is removed keeps their membership row with `removed_at` set (so the change reaches their devices) and `removed_by` saying who ended it, and stays in old expenses.
 - **Drizzle workflow**: schema in `apps/server/src/db/schema/*.ts`, one file per domain; `npm run db:generate` produces SQL migrations committed to `apps/server/drizzle/`; **Wrangler applies them** (`wrangler d1 migrations apply`: locally on `npm run dev`, remotely on deploy). The Worker does not migrate at startup. Migrations are additive and forward-only. Seed data (the `sync_counter` row) is a custom migration (`drizzle-kit generate --custom`).
 
-**Group permissions (as built)**: any member can add, edit or delete any expense, payment or category in the group, as in most shared-expense apps among friends and family; every change is recorded in `audit_log` with who and when, and the row shows who changed it last. Only the owner can rename the group, create or stop invite links, remove members and add them back. The owner cannot leave (there is no ownership transfer yet). **Someone the owner removed cannot come back through an invite link** (`removed_by` is not themselves); the owner re-adds them directly. Someone who left of their own accord can rejoin with a fresh link. Limits: 50 members per group, 30 groups per person, invites last 7 days and allow 20 uses.
+**Group permissions (as built)**: any member can add, edit or delete any expense, payment, category, budget or recurring rule in the group, as in most shared-expense apps among friends and family; every change is recorded in `audit_log` with who and when, and the row shows who changed it last. Only the owner can rename the group, create invite links and stop them (all at once or one by one), remove members and add them back, add people who don't use the app, hand the group to another member, and delete it. The owner cannot leave: they hand the group over first (to a real member, not a placeholder) or delete it. A group may hold 60 budgets and 50 recurring rules (a push over that is refused as `limit_reached`). **Someone the owner removed cannot come back through an invite link** (`removed_by` is not themselves); the owner re-adds them directly. Someone who left of their own accord can rejoin with a fresh link. Limits: 50 members per group, 30 groups per person, invites last 7 days and allow 20 uses.
 
 **Joining is guarded in the write, not just checked beforehand.** Two people accepting the last use of an invite (or the last place in a group) at the same moment would both pass plain reads, so the join is one D1 batch: it bumps the invite's `used_count` only `WHERE used_count < max_uses` (and not revoked or expired, and the group and the person under their limits), then inserts the membership only `WHERE changes() > 0`, i.e. only if that update took effect. D1 runs a batch in one go, so nobody slips in between; the caller then looks at whether the membership exists. These few statements use the D1 binding's own batch because Drizzle's D1 batch cannot take raw SQL.
+
+**People without the app (placeholders).** The owner can add someone by name. It is a `users` row whose Google id is `placeholder:<id>` (which no real Google account can have) and whose email ends `@placeholder.invalid`, plus an ordinary membership, so splits, payers, balances and settle-up need no special case and the member list shows a "No app" badge. Only members can record what a placeholder paid or owes. They count towards the 50-member limit, can be renamed, removed and added back, and cannot own a group. There is no "merge into a real person" step yet.
+
+**Handing a group over** is one guarded D1 batch (reserve two change numbers; demote the owner only if the new owner is an active member; promote the new owner only if that demotion changed a row, via `changes()`), so a group always has exactly one owner even if two hand-overs race.
+
+**Deleting a group** is one atomic batch: every active member is marked removed (by the owner, each with its own change number, worked out in one statement from the member's rank among the group's membership rows, so a device paging through a pull can't skip any), and the group's expenses, payments, categories, budgets, recurring rules, invite links and audit rows are erased. The group row and the removed memberships stay, because the removal reaching each device is how it learns the group is gone. Nothing short of D1 Time Travel brings it back, and a member's unsent changes to it are lost, as with any removal.

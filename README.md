@@ -10,11 +10,15 @@ One Worker serves the API and the built web app from the same origin, so there i
 cookies just work. Everything is TypeScript. The design, roadmap and decisions start at
 [`docs/PLAN.md`](docs/PLAN.md), which links to one document per topic (architecture, data model, sync, auth, repository layout, roadmap and so on).
 
-**Status:** milestones M0 to M2 are built: an offline-first personal ledger, Google sign-in (with a
-hand-back for the installed iPhone app), and shared groups with four split types, balances and
-settle-up. They are covered by unit tests (including inside the real Workers runtime) and by
-end-to-end tests in a real browser. Not yet done: the first real deploy, signing in with real Google,
-and a trial on real phones; the exact list is in [`docs/roadmap.md`](docs/roadmap.md).
+**Status:** milestones M0 to M3 and most of M4 are built: an offline-first personal ledger, Google
+sign-in (with a hand-back for the installed iPhone app), shared groups with four split types,
+balances and settle-up, then insights (month and Indian financial year), search, budgets with
+warnings, recurring expenses, bank-statement CSV import, live updates between devices, and group
+management (stop links one by one, hand a group over, delete it, add people who don't use the app).
+They are covered by unit tests (including inside the real Workers runtime, with real WebSockets) and
+by end-to-end tests in a real browser. M0 to M2 are deployed. Not yet done: a completed real Google
+sign-in, a trial on real phones, and the first real run of the Durable Object, the hourly job and the
+backup workflow; the exact list is in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Quick start
 
@@ -98,6 +102,10 @@ One-time setup:
    `ALLOWED_EMAILS` (comma-separated: you, to bootstrap; everyone else joins through a group invite).
    Use secrets, not plain dashboard variables: a deploy overwrites those, but never secrets.
 
+The same deploy carries a **Durable Object** (live updates; its migration is applied by the first
+deploy that includes it) and an **hourly cron** (recurring expenses). No extra setup is needed for
+either; the token from step 2 covers them.
+
 Optional: add required reviewers to a `production` environment (Settings, Environments) to approve
 each deploy by hand. A custom domain can be attached later in the dashboard; note that an installed
 PWA is tied to its origin.
@@ -105,6 +113,28 @@ PWA is tied to its origin.
 Worker secrets (Google credentials, later) are set with `npx wrangler secret put <NAME>` from
 `apps/server`, never committed. To roll back, use the dashboard's Deployments tab or
 `npx wrangler rollback`; migrations are forward-only, so rolling back code never needs an un-migrate.
+
+## Backups to R2
+
+D1's Time Travel already restores the database to any minute of the last 7 days (30 on the paid
+plan). `.github/workflows/backup.yml` adds a nightly copy that lasts longer and doesn't depend on D1:
+it exports the production database and uploads it, gzipped, to an R2 bucket you own. It skips itself
+(green, with a warning) until this is set up, and has not been run against a real account yet.
+
+1. **Create a private R2 bucket** (dashboard, R2, Create bucket; keep it private).
+2. **Edit the API token** from the deploy setup and add the **Workers R2 Storage: Edit** permission.
+3. **Set a repository variable** (Settings, Secrets and variables, Actions, Variables):
+   `BACKUP_R2_BUCKET` = the bucket's name.
+4. **Add a lifecycle rule** to the bucket (R2, the bucket, Settings, Object lifecycle rules) to delete
+   `backups/` objects after about 90 days.
+5. Run it once from Actions, Backup, Run workflow, and check the object appears under
+   `backups/<year>/<month>/`.
+
+The dump contains everyone's data: keep the bucket private and the run's logs are safe (the file is
+never printed or attached). To restore, `gunzip` a dump, create a new D1 database, load it with
+`npx wrangler d1 execute <name> --remote --file <dump.sql>` from `apps/server`, point
+`wrangler.jsonc` at it and deploy. For anything recent, Time Travel is quicker
+(`wrangler d1 time-travel restore`).
 
 ## Notes
 
