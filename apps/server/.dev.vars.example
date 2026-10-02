@@ -3,7 +3,7 @@
 ENVIRONMENT=development
 LOG_LEVEL=debug
 
-# M1 (Google sign-in) — see docs/PLAN.md section 7
+# M1 (Google sign-in) — see docs/auth.md
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=
 # ALLOWED_EMAILS=you@example.com
