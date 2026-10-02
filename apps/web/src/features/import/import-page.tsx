@@ -21,6 +21,7 @@ import {
   findDuplicates,
   findHeaderRow,
   guessSpendingSign,
+  type ImportRow,
   type InterpretOptions,
   interpretRows,
   type Mapping,
@@ -58,6 +59,9 @@ export function ImportPage() {
   const [mapping, setMapping] = useState<Mapping | null>(null);
   const [dateOrder, setDateOrder] = useState<DateOrder>('dmy');
   const [spendingIs, setSpendingIs] = useState<InterpretOptions['spendingIs']>('negative');
+  // What the person ticked and chose, by each row's line in the file. A row's position in the
+  // list changes when the columns, the date order or the sign change (rows come and go), but its
+  // line does not, so their choices stay with the same transaction.
   const [picked, setPicked] = useState<Record<number, boolean>>({});
   const [chosen, setChosen] = useState<Record<number, string | null>>({});
   const [importing, setImporting] = useState<number | null>(null);
@@ -86,14 +90,12 @@ export function ImportPage() {
 
   if (!categories || !existing) return <Skeleton className="h-40" />;
 
-  const isIncluded = (index: number) => picked[index] ?? !duplicates.has(index);
-  const categoryOf = (index: number): string | null =>
-    index in chosen
-      ? (chosen[index] ?? null)
-      : suggestCategory(rows[index]?.note ?? '', categories);
+  const isIncluded = (row: ImportRow, index: number) => picked[row.line] ?? !duplicates.has(index);
+  const categoryOf = (row: ImportRow): string | null =>
+    row.line in chosen ? (chosen[row.line] ?? null) : suggestCategory(row.note, categories);
 
-  const selected = rows.map((_, i) => i).filter(isIncluded);
-  const totalMinor = selected.reduce((sum, i) => sum + (rows[i]?.amountMinor ?? 0), 0);
+  const selected = rows.filter(isIncluded);
+  const totalMinor = selected.reduce((sum, row) => sum + row.amountMinor, 0);
 
   const load = async (file: File) => {
     if (file.size > MAX_FILE_BYTES) {
@@ -120,16 +122,14 @@ export function ImportPage() {
   const run = async () => {
     setImporting(0);
     let done = 0;
-    for (const index of selected) {
-      const row = rows[index];
-      if (!row) continue;
+    for (const row of selected) {
       const saved = await tryLocal(() =>
         saveExpense(db, user.id, {
           id: uuidv7(),
           groupId: personalGroupId,
           occurredOn: row.date,
           amountMinor: row.amountMinor,
-          categoryId: categoryOf(index),
+          categoryId: categoryOf(row),
           note: row.note.slice(0, 200),
           splitType: 'equal',
           payers: [{ userId: user.id, amountMinor: row.amountMinor }],
@@ -309,9 +309,9 @@ export function ImportPage() {
                       <input
                         type="checkbox"
                         className="mt-1 size-4"
-                        checked={isIncluded(index)}
+                        checked={isIncluded(row, index)}
                         aria-label={`Import ${row.note || 'expense'} on ${formatDay(row.date)}`}
-                        onChange={(e) => setPicked((p) => ({ ...p, [index]: e.target.checked }))}
+                        onChange={(e) => setPicked((p) => ({ ...p, [row.line]: e.target.checked }))}
                       />
                       <div className="min-w-0 flex-1 space-y-1">
                         <p className="flex justify-between gap-3 text-sm">
@@ -327,9 +327,9 @@ export function ImportPage() {
                         <select
                           aria-label={`Category for ${row.note || 'expense'}`}
                           className="border-input bg-background h-8 w-full rounded-md border px-2 text-xs"
-                          value={categoryOf(index) ?? ''}
+                          value={categoryOf(row) ?? ''}
                           onChange={(e) =>
-                            setChosen((c) => ({ ...c, [index]: e.target.value || null }))
+                            setChosen((c) => ({ ...c, [row.line]: e.target.value || null }))
                           }
                         >
                           <option value="">No category</option>

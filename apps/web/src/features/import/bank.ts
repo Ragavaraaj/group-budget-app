@@ -291,17 +291,25 @@ export function interpretRows(
   return out;
 }
 
-/** True if a signed single-amount column is mostly negative, i.e. it is a bank account. */
+/**
+ * Which sign means spending in a signed single-amount column: negative for a bank account (money
+ * out is the minus numbers), positive for a credit card (a bill payment or a refund is the odd
+ * minus one out). Whichever sign most rows have is taken to be spending, and a tie keeps the
+ * bank-account default.
+ */
 export function guessSpendingSign(
   rows: readonly (readonly string[])[],
   mapping: Mapping,
 ): 'negative' | 'positive' {
   if (mapping.amount === NONE) return 'negative';
   let negatives = 0;
+  let positives = 0;
   for (const row of rows) {
-    if (parseAmount(row[mapping.amount] ?? '')?.negative) negatives++;
+    const amount = parseAmount(row[mapping.amount] ?? '');
+    if (amount?.negative) negatives++;
+    else if (amount) positives++;
   }
-  return negatives > 0 ? 'negative' : 'positive';
+  return negatives >= positives ? 'negative' : 'positive';
 }
 
 // --- duplicates and categories ------------------------------------------------------------------
@@ -328,25 +336,31 @@ export function findDuplicates(
 }
 
 // Words that appear in Indian bank narrations, tried in order, and the default category each means.
+// Short words that also sit inside other words (TORRENT POWER, MOTOROLA, METROPOLIS) must match
+// whole (`\b`), with the forms that run together with other text spelled out; long, distinctive
+// brand names can match anywhere in the narration.
 const KEYWORDS: [RegExp, string][] = [
   [
-    /swiggy|zomato|restaurant|cafe|café|dominos|mcdonald|kfc|pizza|starbucks|eatery|bakery|dining/i,
+    /swiggy|zomato|restaurant|cafe|café|dominos|mcdonald|\bkfc\b|pizza|starbucks|eatery|bakery|dining/i,
     'Food & dining',
   ],
-  [/bigbasket|blinkit|zepto|dmart|grofers|grocer|supermarket|instamart|fresh/i, 'Groceries'],
+  [/bigbasket|blinkit|zepto|dmart|grofers|grocer|supermarket|instamart|\bfresh\b/i, 'Groceries'],
   [
-    /uber|ola|rapido|metro|irctc|petrol|fuel|fastag|redbus|parking|indian oil|hpcl|bpcl/i,
+    /\b(?:uber|ola(?:cabs?)?|rapido|metro|irctc)\b|petrol|fuel|fastag|redbus|parking|indian oil|hpcl|bpcl/i,
     'Transport',
   ],
-  [/rent|maintenance|society|housing/i, 'Rent & home'],
+  [/\b(?:rent|rental|maintenance|society|housing)\b/i, 'Rent & home'],
   [
-    /electricity|bescom|airtel|jio|vodafone|vi |broadband|recharge|gas|water bill|bill ?pay|insurance|lic /i,
+    /electricity|bescom|airtel|jio|vodafone|\bvi\b|broadband|recharge|\bgas\b|water bill|bill ?pay|insurance|\blic\b/i,
     'Bills & utilities',
   ],
   [/amazon|flipkart|myntra|ajio|nykaa|meesho/i, 'Shopping'],
-  [/pharmacy|apollo|hospital|clinic|medplus|pharmeasy|1mg|diagnostic|doctor/i, 'Health'],
-  [/netflix|hotstar|spotify|prime video|bookmyshow|pvr|inox|youtube|cinema/i, 'Entertainment'],
-  [/makemytrip|goibibo|indigo|air india|vistara|hotel|oyo|airbnb|cleartrip/i, 'Travel'],
+  [/pharmacy|apollo|hospital|clinic|medplus|pharmeasy|\b1mg\b|diagnostic|doctor/i, 'Health'],
+  [
+    /netflix|hotstar|spotify|prime video|bookmyshow|\bpvr\b|\binox\b|youtube|cinema/i,
+    'Entertainment',
+  ],
+  [/makemytrip|goibibo|indigo|air india|vistara|hotel|\boyo\b|airbnb|cleartrip/i, 'Travel'],
 ];
 
 /** The id of the category a narration most likely belongs to, or null when nothing is recognised. */

@@ -6,13 +6,9 @@ import {
   recurringExpenseId,
   toIndiaDate,
 } from '@budget/shared';
-import { and, asc, eq, isNull, lte } from 'drizzle-orm';
-import type { BatchItem } from 'drizzle-orm/batch';
-import { reserveSeq, runBatch, seqFor } from '../../db/batch';
+import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
-import { auditLog, expenses, memberships, recurringRules } from '../../db/schema';
-
-type Statement = BatchItem<'sqlite'>;
+import { memberships, recurringRules } from '../../db/schema';
 
 export interface GenerateResult {
   /** Occurrences turned into expenses in this run. */
@@ -24,6 +20,30 @@ export interface GenerateResult {
 }
 
 /**
+ * Nobody in the template (payers or split) has left the group. The expense would put a debt on
+ * someone who can no longer see the group, so a rule that names them waits until a member edits
+ * it. In SQL, so such a rule never takes one of the run's few places from a rule that can run.
+ */
+const everyoneStillIn = sql`NOT EXISTS (
+  SELECT 1 FROM ${memberships} AS gone
+  WHERE gone.group_id = ${recurringRules.groupId}
+    AND gone.removed_at IS NOT NULL
+    AND (
+      EXISTS (SELECT 1 FROM json_each(${recurringRules.payers}) AS p
+              WHERE json_extract(p.value, '$.userId') = gone.user_id)
+      OR EXISTS (SELECT 1 FROM json_each(${recurringRules.shares}) AS s
+                 WHERE json_extract(s.value, '$.userId') = gone.user_id)
+    )
+)`;
+
+/** The rule is still the one this run read: not edited, not deleted, not moved on by another run. */
+const STILL_DUE = `id = ? AND version = ? AND next_due_on = ? AND deleted_at IS NULL AND active = 1`;
+
+/** The next change number for the i-th (1-based) of `count` rows written by one batch. */
+const seqSql = (count: number, index: number) =>
+  `(SELECT value FROM sync_counter WHERE id = 1) - ${count - index}`;
+
+/**
  * The scheduled job: turns recurring rules that have come due into ordinary expenses, which then
  * reach every device through the normal pull.
  *
@@ -32,12 +52,18 @@ export interface GenerateResult {
  * (each is an expense and an audit row), plus one update per rule. A bigger backlog simply takes
  * more runs; the job is scheduled hourly.
  *
- * Running twice for the same occurrence is harmless: the expense id is derived from the rule and
- * the date, so the second insert changes nothing, and each rule's update only applies if the rule
- * is still at the date this run read.
+ * Two runs, or a run and a person editing the rule, can overlap, and the batch is built so that
+ * the overlap changes nothing twice. The expense id is derived from the rule and the date, and
+ * every statement for a rule is conditional on the rule still being as this run read it (same
+ * version, same next date, not deleted): the first writer moves the rule on, so the other writes
+ * no expense, no audit row, and reports nothing. A rule edited in the meantime is simply picked
+ * up again, with its new content, by the next run. Dates at or before the last one made are never
+ * made again, even if an edit that was planned before a run and committed after it put the next
+ * date back.
  *
- * Rules whose creator has left the group wait: nobody is answerable for the expense, and any
- * remaining member can delete or take over the rule by editing it.
+ * Rules whose creator has left the group, or that name someone who has, wait: nobody is
+ * answerable for the expense. Any remaining member can delete the rule, or take it over by
+ * editing it (see `recurringServerFields`).
  */
 export async function generateDueExpenses(
   db: Db,
@@ -62,6 +88,7 @@ export async function generateDueExpenses(
         isNull(recurringRules.deletedAt),
         eq(recurringRules.active, true),
         lte(recurringRules.nextDueOn, today),
+        everyoneStillIn,
       ),
     )
     .orderBy(asc(recurringRules.nextDueOn))
@@ -70,86 +97,101 @@ export async function generateDueExpenses(
   // Work out what each rule makes in this run, oldest first, without going over the limit.
   const plans: {
     rule: (typeof due)[number]['rule'];
+    /** Never empty: a rule with nothing left to make is only moved past today. */
     dates: string[];
     next: string | null;
   }[] = [];
   let room = limit;
   for (const { rule } of due) {
     if (room <= 0 || rule.nextDueOn === null) break;
-    const dates = occurrencesAfter(rule, addDays(rule.nextDueOn, -1), today, room);
-    if (dates.length === 0) continue;
+    const startAfter = addDays(rule.nextDueOn, -1);
+    const after =
+      rule.lastGeneratedOn !== null && rule.lastGeneratedOn > startAfter
+        ? rule.lastGeneratedOn
+        : startAfter;
+    const dates = occurrencesAfter(rule, after, today, room);
+    const next = nextOccurrence(rule, dates.at(-1) ?? after);
+    if (dates.length === 0 && next === rule.nextDueOn) continue;
     room -= dates.length;
-    plans.push({ rule, dates, next: nextOccurrence(rule, dates.at(-1) ?? null) });
+    plans.push({ rule, dates, next });
   }
+  if (plans.length === 0) return { generated: 0, rules: 0, groupIds: [] };
 
+  // Raw statements: they are `INSERT ... SELECT ... WHERE` (and `changes()`), which Drizzle's
+  // query builders can't express. The expense is copied from the rule row itself, so what is
+  // written is exactly the version the guard checked.
+  const d1 = db.$client;
   const occurrences = plans.reduce((sum, plan) => sum + plan.dates.length, 0);
-  if (occurrences === 0) return { generated: 0, rules: 0, groupIds: [] };
-
-  // Every row written takes a change number: each expense, and each rule that moved on.
-  const total = occurrences + plans.length;
-  const statements: Statement[] = [reserveSeq(db, total)];
+  // Every row written takes a change number: each expense, and each rule that made some.
+  const total = occurrences + plans.filter((plan) => plan.dates.length > 0).length;
+  const statements: D1PreparedStatement[] = [];
+  if (total > 0) {
+    statements.push(
+      d1.prepare('UPDATE sync_counter SET value = value + ? WHERE id = 1').bind(total),
+    );
+  }
+  const updateAt: number[] = [];
   let index = 0;
 
-  for (const { rule, dates } of plans) {
+  for (const { rule, dates, next } of plans) {
+    const guard = [rule.id, rule.version, rule.nextDueOn] as const;
     for (const date of dates) {
       const id = await recurringExpenseId(rule.id, date);
-      const row = {
-        id,
-        groupId: rule.groupId,
-        occurredOn: date,
-        amountMinor: rule.amountMinor,
-        categoryId: rule.categoryId,
-        note: rule.note,
-        splitType: rule.splitType,
-        payers: rule.payers,
-        shares: rule.shares,
-        createdBy: rule.createdBy,
-        version: 1,
-        updatedAt: now,
-        updatedBy: rule.createdBy,
-        deletedAt: null,
-      };
       statements.push(
-        db
-          .insert(expenses)
-          .values({ ...row, serverSeq: seqFor(total, ++index) })
-          .onConflictDoNothing(),
-        db.insert(auditLog).values({
-          mutationId: `recurring:${rule.id}:${date}`,
-          userId: rule.createdBy,
-          groupId: rule.groupId,
-          entity: 'expense',
-          entityId: id,
-          before: null,
-          after: row,
-          at: now,
-        }),
+        d1
+          .prepare(
+            `INSERT INTO expenses (id, group_id, occurred_on, amount_minor, category_id, note,
+               split_type, payers, shares, created_by, version, updated_at, updated_by,
+               deleted_at, server_seq)
+             SELECT ?, group_id, ?, amount_minor, category_id, note, split_type, payers, shares,
+               created_by, 1, ?, created_by, NULL, ${seqSql(total, ++index)}
+             FROM recurring_rules WHERE ${STILL_DUE}
+             ON CONFLICT DO NOTHING`,
+          )
+          .bind(id, date, now, ...guard),
+        // Only when the expense was really written (`changes()`): a rerun or an expense that
+        // was made before and since deleted adds nothing to the log.
+        d1
+          .prepare(
+            `INSERT INTO audit_log (mutation_id, user_id, group_id, entity, entity_id, before, after, at)
+             SELECT ?, created_by, group_id, 'expense', ?, NULL,
+               json_object('id', ?, 'groupId', group_id, 'occurredOn', ?, 'amountMinor', amount_minor,
+                 'categoryId', category_id, 'note', note, 'splitType', split_type,
+                 'payers', json(payers), 'shares', json(shares), 'createdBy', created_by,
+                 'version', 1, 'updatedAt', ?, 'updatedBy', created_by, 'deletedAt', NULL),
+               ?
+             FROM recurring_rules WHERE id = ? AND changes() > 0`,
+          )
+          .bind(`recurring:${rule.id}:${date}`, id, id, date, now, now, rule.id),
       );
     }
-  }
 
-  for (const { rule, dates, next } of plans) {
     // The version is left alone: a person editing the rule at the same moment isn't in conflict
-    // with the job. Only the change number moves, so devices pick the new dates up.
+    // with the job. When it made expenses the change number moves too, so devices pick up the
+    // new "last made" date; a rule that is only being moved past today needn't bother them.
+    updateAt.push(statements.length);
     statements.push(
-      db
-        .update(recurringRules)
-        .set({ lastGeneratedOn: dates.at(-1), nextDueOn: next, serverSeq: seqFor(total, ++index) })
-        .where(
-          and(
-            eq(recurringRules.id, rule.id),
-            rule.nextDueOn === null
-              ? isNull(recurringRules.nextDueOn)
-              : eq(recurringRules.nextDueOn, rule.nextDueOn),
-          ),
-        ),
+      d1
+        .prepare(
+          `UPDATE recurring_rules
+           SET last_generated_on = ?, next_due_on = ?${
+             dates.length > 0 ? `, server_seq = ${seqSql(total, ++index)}` : ''
+           }
+           WHERE ${STILL_DUE}`,
+        )
+        .bind(dates.at(-1) ?? rule.lastGeneratedOn, next, ...guard),
     );
   }
 
-  await runBatch(db, statements);
+  const results = await d1.batch(statements);
+
+  // A rule counts only if its own update took effect: that is the one that says this run, and
+  // not another, moved it on.
+  const moved = plans.filter((_, i) => (results[updateAt[i] as number]?.meta.changes ?? 0) > 0);
+  const made = moved.filter((plan) => plan.dates.length > 0);
   return {
-    generated: occurrences,
-    rules: plans.length,
-    groupIds: [...new Set(plans.map((plan) => plan.rule.groupId))],
+    generated: made.reduce((sum, plan) => sum + plan.dates.length, 0),
+    rules: made.length,
+    groupIds: [...new Set(made.map((plan) => plan.rule.groupId))],
   };
 }

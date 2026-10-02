@@ -41,3 +41,27 @@ export function describeNext(
   const next = nextOccurrence(rule, rule.lastGeneratedOn);
   return next === null ? 'Finished' : `Next: ${format(next)}`;
 }
+
+/**
+ * The people a rule depends on who have left its group: those named in its split, and the person
+ * who set it up. The server holds such a rule back (it would add to the debt of someone who can't
+ * see the group, or answer to no one), until a member edits it, so the screens say so.
+ */
+export function peopleWhoLeft(
+  rule: { payers: readonly { userId: string }[]; shares: readonly { userId: string }[] },
+  creatorId: string,
+  members: readonly { userId: string; displayName: string; removedAt: number | null }[],
+): { inSplit: string[]; creator: string | null } {
+  const left = new Map(members.filter((m) => m.removedAt !== null).map((m) => [m.userId, m]));
+  const named = new Set([...rule.payers, ...rule.shares].map((p) => p.userId));
+  return {
+    inSplit: [...named].flatMap((id) => left.get(id)?.displayName ?? []),
+    creator: left.get(creatorId)?.displayName ?? null,
+  };
+}
+
+/** "Asha", "Asha and Ravi", "Asha, Ravi and Meera". */
+export function joinNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}

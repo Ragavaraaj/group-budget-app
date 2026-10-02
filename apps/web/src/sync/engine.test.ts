@@ -574,6 +574,45 @@ describe('polling', () => {
     engine.stop();
   });
 
+  it('does not sync for a connection closed while the app is in the background', async () => {
+    const api = new FakeApi();
+    const engine = engineFor(api, {}, { pollMs: 30_000 });
+    engine.start();
+    await flush();
+    engine.setLive(true);
+    await flush();
+    const before = api.pulls.length;
+
+    visible = false;
+    await fire(document, 'visibilitychange');
+    engine.setLive(false); // the channel closing itself as the app is hidden
+    await flush();
+    expect(engine.getSnapshot().live).toBe(false);
+    expect(api.pulls).toHaveLength(before);
+    await advance(10 * 60_000);
+    expect(api.pulls).toHaveLength(before); // and nothing polls while hidden
+
+    visible = true;
+    await fire(document, 'visibilitychange'); // coming back syncs, once
+    expect(api.pulls).toHaveLength(before + 1);
+    engine.stop();
+  });
+
+  it('does nothing when told about the connection after it has been stopped', async () => {
+    const api = new FakeApi();
+    const engine = engineFor(api);
+    engine.start();
+    await flush();
+    engine.setLive(true);
+    await flush();
+    const before = api.pulls.length;
+
+    engine.stop();
+    engine.setLive(false); // what `live.stop()` does, if it runs second
+    await flush();
+    expect(api.pulls).toHaveLength(before);
+  });
+
   it('ignores a repeated live state, so a flapping connection does not cause extra syncs', async () => {
     const api = new FakeApi();
     const engine = engineFor(api);

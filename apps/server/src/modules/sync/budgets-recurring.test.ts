@@ -140,6 +140,51 @@ describe('budgets', () => {
   });
 });
 
+describe('the limits and restoring', () => {
+  it('counts a restored budget against the group limit', async () => {
+    const all = Array.from({ length: MAX_BUDGETS_PER_GROUP }, () => budgetData(groupId));
+    for (let i = 0; i < all.length; i += 10) {
+      await push(
+        alice,
+        all.slice(i, i + 10).map((data) => upsert('budget', data)),
+      );
+    }
+    const first = all[0] as ReturnType<typeof budgetData>;
+    await push(alice, [tombstone('delete', 'budget', first.id, groupId, 1)]);
+    // The freed place is taken by a new budget, so the old one can't come back as well.
+    const [replacement] = await push(alice, [upsert('budget', budgetData(groupId))]);
+    expect(replacement?.status).toBe('applied');
+    const [restored] = await push(alice, [tombstone('restore', 'budget', first.id, groupId, 2)]);
+    expect(restored).toMatchObject({ status: 'rejected', reason: 'limit_reached' });
+
+    // Once there is room it works again, and restoring an active one is still a no-op.
+    const [other] = all.slice(1) as ReturnType<typeof budgetData>[];
+    await push(alice, [tombstone('delete', 'budget', (other as { id: string }).id, groupId, 1)]);
+    const [again] = await push(alice, [tombstone('restore', 'budget', first.id, groupId, 2)]);
+    expect(again?.status).toBe('applied');
+    const [noop] = await push(alice, [tombstone('restore', 'budget', first.id, groupId, 3)]);
+    expect(noop?.status).toBe('applied');
+  });
+
+  it('counts a restored recurring rule against the group limit', async () => {
+    const rules = Array.from({ length: MAX_RECURRING_PER_GROUP }, () =>
+      ruleData(groupId, alice.id),
+    );
+    for (let i = 0; i < rules.length; i += 10) {
+      await push(
+        alice,
+        rules.slice(i, i + 10).map((data) => upsert('recurring', data)),
+      );
+    }
+    const first = rules[0] as { id: string };
+    await push(alice, [tombstone('delete', 'recurring', first.id, groupId, 1)]);
+    await push(alice, [upsert('recurring', ruleData(groupId, alice.id))]);
+    const [restored] = await push(alice, [tombstone('restore', 'recurring', first.id, groupId, 2)]);
+    expect(restored).toMatchObject({ status: 'rejected', reason: 'limit_reached' });
+    expect((await ruleRow(first.id))?.deletedAt).not.toBeNull();
+  });
+});
+
 describe('recurring rules', () => {
   it('stores a rule with the date the next expense is due', async () => {
     const data = ruleData(groupId, alice.id, { categoryId, startOn: addDays(today(), 3) });
@@ -238,6 +283,81 @@ describe('recurring rules', () => {
     const [deleted] = await push(alice, [tombstone('delete', 'recurring', data.id, groupId, 1)]);
     expect(deleted).toMatchObject({ status: 'applied', version: 2 });
     expect((await ruleRow(data.id))?.deletedAt).not.toBeNull();
+  });
+
+  it('has no next date once deleted, and starts again from today when restored', async () => {
+    const start = addDays(today(), -60);
+    const data = ruleData(groupId, alice.id, { startOn: start, frequency: 'weekly' });
+    await push(alice, [upsert('recurring', data)]);
+    expect((await ruleRow(data.id))?.nextDueOn).not.toBeNull();
+
+    await push(alice, [tombstone('delete', 'recurring', data.id, groupId, 1)]);
+    expect((await ruleRow(data.id))?.nextDueOn).toBeNull();
+
+    const [restored] = await push(alice, [tombstone('restore', 'recurring', data.id, groupId, 2)]);
+    expect(restored).toMatchObject({ status: 'applied', version: 3 });
+    const row = await ruleRow(data.id);
+    // It does not go back to what it had missed (or to the old date): from today.
+    expect((row?.nextDueOn as string) >= today()).toBe(true);
+    expect(row?.lastGeneratedOn).toBe(addDays(today(), -1));
+    expect(row?.deletedAt).toBeNull();
+  });
+
+  it('keeps a paused rule paused through delete and restore', async () => {
+    const data = ruleData(groupId, alice.id, { active: false });
+    await push(alice, [upsert('recurring', data)]);
+    await push(alice, [tombstone('delete', 'recurring', data.id, groupId, 1)]);
+    await push(alice, [tombstone('restore', 'recurring', data.id, groupId, 2)]);
+    expect(await ruleRow(data.id)).toMatchObject({ active: false, nextDueOn: null });
+  });
+
+  it('refuses an active rule that names someone who has left, but lets it be paused', async () => {
+    const shared = await createSharedGroup(alice);
+    await join(bob, (await makeInvite(alice, shared)).token);
+    const data = ruleData(shared, alice.id, {
+      payers: [{ userId: alice.id, amountMinor: 10_000 }],
+      shares: [
+        { userId: alice.id, amountMinor: 5_000 },
+        { userId: bob.id, amountMinor: 5_000 },
+      ],
+    });
+    const [created] = await push(alice, [upsert('recurring', data)]);
+    expect(created?.status).toBe('applied');
+
+    await alice.client.request(`/api/groups/${shared}/members/${bob.id}`, { method: 'DELETE' });
+
+    // Any edit that leaves it running is refused: it would keep charging someone who can't see it.
+    const [edit] = await push(alice, [upsert('recurring', { ...data, note: 'Rent 2' }, 1)]);
+    expect(edit).toMatchObject({ status: 'rejected', reason: 'invalid_reference' });
+    const [fresh] = await push(alice, [
+      upsert(
+        'recurring',
+        ruleData(shared, alice.id, {
+          shares: [{ userId: bob.id, amountMinor: 10_000 }],
+        }),
+      ),
+    ]);
+    expect(fresh).toMatchObject({ status: 'rejected', reason: 'invalid_reference' });
+
+    // Pausing is allowed (a paused rule makes nothing), but switching it back on is not.
+    const [paused] = await push(alice, [upsert('recurring', { ...data, active: false }, 1)]);
+    expect(paused?.status).toBe('applied');
+    const [resumed] = await push(alice, [upsert('recurring', { ...data, active: true }, 2)]);
+    expect(resumed).toMatchObject({ status: 'rejected', reason: 'invalid_reference' });
+
+    // Taking them out of the split fixes it.
+    const [fixed] = await push(alice, [
+      upsert(
+        'recurring',
+        {
+          ...data,
+          active: true,
+          shares: [{ userId: alice.id, amountMinor: 10_000 }],
+        },
+        2,
+      ),
+    ]);
+    expect(fixed?.status).toBe('applied');
   });
 
   it('stops a group at its limit', async () => {

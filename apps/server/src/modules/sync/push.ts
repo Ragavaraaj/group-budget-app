@@ -47,13 +47,19 @@ interface Known {
   snapshot: unknown;
 }
 
-/** What the server itself decides about a recurring rule (see `recurringServerFields`). */
-interface RecurringServer {
-  createdBy: string;
+/** Where a recurring rule stands in its schedule. The scheduled job moves it on from there. */
+interface Schedule {
   lastGeneratedOn: string | null;
   nextDueOn: string | null;
+}
+
+/** What the server itself decides about a recurring rule (see `recurringServerFields`). */
+interface RecurringServer extends Schedule {
+  createdBy: string;
   /** A paused rule was switched on again in this edit. */
   resumed: boolean;
+  /** The creator had left the group, so this edit made the editor answerable for the rule. */
+  tookOver: boolean;
 }
 
 type Write =
@@ -65,7 +71,14 @@ type Write =
       after: unknown;
       server?: RecurringServer;
     }
-  | { kind: 'delete' | 'restore'; mutation: Tombstone; before: unknown; after: unknown };
+  | {
+      kind: 'delete' | 'restore';
+      mutation: Tombstone;
+      before: unknown;
+      after: unknown;
+      /** A recurring rule's schedule after the change (see `recurringTombstoneSchedule`). */
+      schedule?: Schedule;
+    };
 
 interface Plan {
   results: MutationResult[];
@@ -200,13 +213,20 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
         : [],
     ]);
 
-  // Only active members may write; anyone who was ever a member can still appear in an old split.
-  const everMember = new Map<string, Set<string>>();
+  // Only active members may write. Anyone who was ever a member can still appear in an old
+  // expense's split, but a template for future ones (an active recurring rule) may name only
+  // the people who are in the group now.
+  const members: Members = { ever: new Map(), active: new Map() };
   const activeMember = new Set<string>();
+  const addMember = (sets: Map<string, Set<string>>, groupId: string, id: string) => {
+    if (!sets.has(groupId)) sets.set(groupId, new Set());
+    sets.get(groupId)?.add(id);
+  };
   for (const row of memberRows) {
-    if (!everMember.has(row.groupId)) everMember.set(row.groupId, new Set());
-    everMember.get(row.groupId)?.add(row.userId);
-    if (row.userId === userId && row.removedAt === null) activeMember.add(row.groupId);
+    addMember(members.ever, row.groupId, row.userId);
+    if (row.removedAt !== null) continue;
+    addMember(members.active, row.groupId, row.userId);
+    if (row.userId === userId) activeMember.add(row.groupId);
   }
 
   const known = new Map<string, Known>();
@@ -258,7 +278,7 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
         reject(m, 'deleted');
         continue;
       }
-      if (!referencesAreValid(m, groupId, everMember, known)) {
+      if (!referencesAreValid(m, groupId, members, known)) {
         reject(m, 'invalid_reference');
         continue;
       }
@@ -269,13 +289,15 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
       const version = (existing?.version ?? 0) + 1;
       const conflict =
         existing !== undefined && m.baseVersion !== null && m.baseVersion < existing.version;
+      const rule = existing?.snapshot as RecurringRow | undefined;
       const server =
         m.entity === 'recurring'
           ? recurringServerFields(
               m.data,
-              existing?.snapshot as RecurringRow | undefined,
+              rule,
               userId,
               now,
+              rule !== undefined && !members.active.get(groupId)?.has(rule.createdBy),
             )
           : undefined;
       const after = {
@@ -285,7 +307,13 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
         updatedBy: userId,
         deletedAt: null,
         ...(m.entity === 'expense' || m.entity === 'settlement' ? { createdBy: userId } : {}),
-        ...(server ? { ...server, resumed: undefined } : {}),
+        ...(server
+          ? {
+              createdBy: server.createdBy,
+              lastGeneratedOn: server.lastGeneratedOn,
+              nextDueOn: server.nextDueOn,
+            }
+          : {}),
       };
       plan.writes.push({
         kind: 'upsert',
@@ -311,15 +339,31 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
       applied(m, existing.version, false);
       continue;
     }
+    // Restoring puts a row back among the group's budgets and rules, so it counts against the cap.
+    if (!wantDeleted && !room.take(m.entity, groupId)) {
+      reject(m, 'limit_reached');
+      continue;
+    }
     const version = existing.version + 1;
+    const schedule =
+      m.entity === 'recurring'
+        ? recurringTombstoneSchedule(existing.snapshot as RecurringRow, wantDeleted, now)
+        : undefined;
     const after = {
       ...(existing.snapshot as object),
       version,
       updatedAt: now,
       updatedBy: userId,
       deletedAt: wantDeleted ? now : null,
+      ...schedule,
     };
-    plan.writes.push({ kind: m.op, mutation: m, before: existing.snapshot, after });
+    plan.writes.push({
+      kind: m.op,
+      mutation: m,
+      before: existing.snapshot,
+      after,
+      ...(schedule ? { schedule } : {}),
+    });
     known.set(key(m.entity, id), {
       groupId,
       version,
@@ -337,14 +381,20 @@ async function planMutations(db: Db, userId: string, todo: Mutation[], now: numb
   return plan;
 }
 
+/** The people of each group: everyone who ever belonged, and those who belong now. */
+interface Members {
+  ever: Map<string, Set<string>>;
+  active: Map<string, Set<string>>;
+}
+
 /** Categories must exist in the same group; people in a split must belong to the group. */
 function referencesAreValid(
   m: Upsert,
   groupId: string,
-  everMember: Map<string, Set<string>>,
+  members: Members,
   known: Map<string, Known>,
 ): boolean {
-  const members = everMember.get(groupId) ?? new Set<string>();
+  const ever = members.ever.get(groupId) ?? new Set<string>();
   switch (m.entity) {
     case 'category':
       return true;
@@ -353,17 +403,21 @@ function referencesAreValid(
       if (categoryId !== null && known.get(key('category', categoryId))?.groupId !== groupId) {
         return false;
       }
-      return [...payers, ...shares].every((p) => members.has(p.userId));
+      return [...payers, ...shares].every((p) => ever.has(p.userId));
     }
     case 'settlement':
-      return members.has(m.data.fromUser) && members.has(m.data.toUser);
+      return ever.has(m.data.fromUser) && ever.has(m.data.toUser);
     case 'budget':
       return categoryIsInGroup(m.data.categoryId, groupId, known);
     case 'recurring': {
       const { categoryId, payers, shares } = m.data;
+      // A template for future expenses must not name someone who has left: every month it would
+      // add to their debt in a group they can't see. A paused rule makes none, so it may still be
+      // saved (that is how a member pauses it) while it names them.
+      const allowed = m.data.active ? (members.active.get(groupId) ?? new Set<string>()) : ever;
       return (
         categoryIsInGroup(categoryId, groupId, known) &&
-        [...payers, ...shares].every((p) => members.has(p.userId))
+        [...payers, ...shares].every((p) => allowed.has(p.userId))
       );
     }
   }
@@ -378,38 +432,66 @@ const categoryIsInGroup = (categoryId: string | null, groupId: string, known: Ma
  * the day the next expense is due, and the last one made. A paused rule has no next date. A
  * rule that was paused and is switched on again starts from today rather than catching up on
  * what it missed, and no rule goes back further than `RECURRING_MAX_BACKFILL_DAYS`.
+ *
+ * A rule keeps its creator, who is the person the generated expenses are made on behalf of, until
+ * that person has left the group. Then the rule would wait for ever, so whoever edits it next
+ * takes it over (`creatorHasLeft`).
  */
 export function recurringServerFields(
   data: RecurringData,
   existing: RecurringRow | undefined,
   userId: string,
   now: number,
+  creatorHasLeft = false,
 ): RecurringServer {
+  const resumed = existing !== undefined && !existing.active && data.active;
+  const schedule = scheduleOf(data, existing?.lastGeneratedOn ?? null, now, resumed);
+  const tookOver = existing !== undefined && creatorHasLeft;
+  return {
+    createdBy: existing && !creatorHasLeft ? existing.createdBy : userId,
+    ...schedule,
+    resumed,
+    tookOver,
+  };
+}
+
+/**
+ * A rule's schedule after it is deleted (nothing is ever due while it is, so the job's index
+ * doesn't carry it) or restored. A restored rule starts again from today, the same as a resumed
+ * one: it was off in between, and it must not go back to a date from before it was deleted.
+ */
+function recurringTombstoneSchedule(rule: RecurringRow, deleting: boolean, now: number): Schedule {
+  if (deleting) return { lastGeneratedOn: rule.lastGeneratedOn, nextDueOn: null };
+  return scheduleOf(rule, rule.lastGeneratedOn, now, true);
+}
+
+function scheduleOf(
+  data: RecurringData | RecurringRow,
+  lastGeneratedOn: string | null,
+  now: number,
+  restart: boolean,
+): Schedule {
   const today = toIndiaDate(new Date(now));
-  let last = existing?.lastGeneratedOn ?? null;
-  if (existing && !existing.active && data.active) {
+  let last = lastGeneratedOn;
+  if (restart) {
     const yesterday = addDays(today, -1);
     if (last === null || last < yesterday) last = yesterday;
   }
   const floor = addDays(today, -RECURRING_MAX_BACKFILL_DAYS - 1);
   const after = last !== null && last > floor ? last : floor;
-  return {
-    createdBy: existing?.createdBy ?? userId,
-    lastGeneratedOn: last,
-    nextDueOn: data.active ? nextOccurrence(data, after) : null,
-    resumed: existing !== undefined && !existing.active && data.active,
-  };
+  return { lastGeneratedOn: last, nextDueOn: data.active ? nextOccurrence(data, after) : null };
 }
 
-/** How many more budgets / rules each group may add, for the ones created in this push. */
+/** How many more budgets / rules each group may add, for the ones created or restored in this push. */
 async function roomLeft(db: Db, todo: Mutation[], known: Map<string, Known>) {
+  // A new row takes a place, and so does a restored one (which is back among the group's rows).
   const creating = (entity: 'budget' | 'recurring') =>
     unique(
-      todo.flatMap((m) =>
-        m.op === 'upsert' && m.entity === entity && !known.has(key(entity, m.data.id))
-          ? [m.data.groupId]
-          : [],
-      ),
+      todo.flatMap((m) => {
+        if (m.entity !== entity) return [];
+        if (m.op === 'restore') return [m.groupId];
+        return m.op === 'upsert' && !known.has(key(entity, m.data.id)) ? [m.data.groupId] : [];
+      }),
     );
   const [budgetGroups, ruleGroups] = [creating('budget'), creating('recurring')];
 
@@ -539,7 +621,17 @@ function rowStatement(db: Db, write: Write, userId: string, now: number, seq: Se
     case 'recurring':
       return db
         .update(recurringRules)
-        .set({ ...set, version: sql`${recurringRules.version} + 1` })
+        .set({
+          ...set,
+          // Deleted: nothing due. Restored: starts again from today (`recurringTombstoneSchedule`).
+          ...(write.schedule
+            ? {
+                nextDueOn: write.schedule.nextDueOn,
+                ...(wantDeleted ? {} : { lastGeneratedOn: write.schedule.lastGeneratedOn }),
+              }
+            : {}),
+          version: sql`${recurringRules.version} + 1`,
+        })
         .where(
           and(
             eq(recurringRules.id, id),
@@ -678,7 +770,8 @@ function upsertStatement(
         payers: data.payers,
         shares: data.shares,
       };
-      const { createdBy, lastGeneratedOn, nextDueOn, resumed } = write.server as RecurringServer;
+      const { createdBy, lastGeneratedOn, nextDueOn, resumed, tookOver } =
+        write.server as RecurringServer;
       return db
         .insert(recurringRules)
         .values({
@@ -694,11 +787,13 @@ function upsertStatement(
         })
         .onConflictDoUpdate({
           target: recurringRules.id,
-          // `createdBy` is never touched. The last date made only moves when a paused rule
-          // resumes: otherwise the scheduled job may have moved it since this was planned.
+          // `createdBy` changes only when the creator has left and an editor takes the rule over.
+          // The last date made only moves when a paused rule resumes: otherwise the scheduled job
+          // may have moved it since this was planned.
           set: {
             ...fields,
             nextDueOn,
+            ...(tookOver ? { createdBy } : {}),
             ...(resumed ? { lastGeneratedOn } : {}),
             ...sync,
             version: sql`${recurringRules.version} + 1`,

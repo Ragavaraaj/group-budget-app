@@ -7,7 +7,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 // Same-origin in every environment: Vite (dev) and `vite preview` proxy /api to `wrangler dev`,
 // and in production one Worker serves the API and these static files. No CORS, and session
 // cookies just work.
-const api = { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: false } };
+// `ws` lets the live-updates WebSocket (/api/live) through to wrangler as well.
+const api = { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: false, ws: true } };
 
 export default defineConfig({
   plugins: [

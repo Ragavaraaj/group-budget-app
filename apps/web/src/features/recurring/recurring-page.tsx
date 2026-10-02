@@ -1,18 +1,19 @@
 import { formatPaise } from '@budget/shared';
 import { ArrowLeft, Plus, Repeat } from 'lucide-react';
 import { Link } from 'react-router';
+import { toast } from 'sonner';
 import { useDb, useMe } from '@/auth/sync-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
-import { useGroups, useRecurringRules } from '@/db/hooks';
+import { useGroups, useRecurringRules, useRemovedMembers } from '@/db/hooks';
 import { saveRecurring } from '@/db/repo';
 import type { LocalRecurring } from '@/db/types';
 import { formatDay } from '@/lib/format';
 import { tryLocal } from '@/lib/local-errors';
-import { describeNext, describeSchedule } from './describe';
+import { describeNext, describeSchedule, joinNames, peopleWhoLeft } from './describe';
 
 /** `/settings/recurring`: expenses that repeat by themselves (rent, subscriptions, a SIP…). */
 export function RecurringPage() {
@@ -20,12 +21,23 @@ export function RecurringPage() {
   const { user } = useMe();
   const rules = useRecurringRules();
   const groups = useGroups();
+  const removed = useRemovedMembers();
 
-  if (!rules || !groups) return <Skeleton className="h-40" />;
+  if (!rules || !groups || !removed) return <Skeleton className="h-40" />;
   const groupName = new Map(groups.map((g) => [g.id, g.isPersonal ? null : g.name]));
+  const whoLeft = (rule: LocalRecurring) =>
+    peopleWhoLeft(rule, rule.createdBy, removed.get(rule.groupId) ?? []);
 
-  const toggle = (rule: LocalRecurring, active: boolean) =>
-    tryLocal(() =>
+  const toggle = (rule: LocalRecurring, active: boolean) => {
+    const { inSplit } = whoLeft(rule);
+    if (active && inSplit.length > 0) {
+      // The server would refuse it, and the switch would flip back later with no explanation.
+      toast.error(
+        `${joinNames(inSplit)} left the group. Open this rule and take them out of the split first.`,
+      );
+      return;
+    }
+    return tryLocal(() =>
       saveRecurring(db, user.id, {
         id: rule.id,
         groupId: rule.groupId,
@@ -41,6 +53,7 @@ export function RecurringPage() {
         shares: rule.shares,
       }),
     );
+  };
 
   return (
     <div className="space-y-5">
@@ -78,6 +91,13 @@ export function RecurringPage() {
         <ul className="space-y-3" data-testid="recurring-list">
           {rules.map((rule) => {
             const group = groupName.get(rule.groupId);
+            const { inSplit, creator } = whoLeft(rule);
+            const waiting =
+              rule.active && inSplit.length > 0
+                ? `Waiting: ${joinNames(inSplit)} left the group. Open it and take them out of the split.`
+                : rule.active && creator !== null
+                  ? `Waiting: ${creator}, who set it up, left the group. Open it and save to take it over.`
+                  : null;
             return (
               <li key={rule.id}>
                 <Card>
@@ -101,6 +121,14 @@ export function RecurringPage() {
                       <span className="text-muted-foreground block text-xs">
                         {describeNext(rule, (d) => formatDay(d))}
                       </span>
+                      {waiting ? (
+                        <span
+                          className="block text-xs text-amber-600 dark:text-amber-400"
+                          data-testid="rule-waiting"
+                        >
+                          {waiting}
+                        </span>
+                      ) : null}
                     </Link>
                     <Switch
                       checked={rule.active}

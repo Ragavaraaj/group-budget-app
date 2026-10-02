@@ -80,8 +80,11 @@ export function SignedInProvider({ me, children }: { me: MeResponse; children: R
     });
     return () => {
       unsubscribe();
-      value.live.stop();
+      // The engine first: stopping the connection tells it "no longer live", and a stopped
+      // engine ignores that, where a running one would start a sync it can't finish (the
+      // database may be gone by then, after sign-out) or one that duplicates the next provider's.
       value.engine.stop();
+      value.live.stop();
     };
   }, [value, markSessionExpired]);
 

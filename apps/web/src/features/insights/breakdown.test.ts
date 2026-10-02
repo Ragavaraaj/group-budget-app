@@ -41,6 +41,28 @@ describe('nameCategories', () => {
     expect(rows[0]).toMatchObject({ amountMinor: 350, count: 4 });
   });
 
+  it('keeps a category called "Other" or "None" apart from the rows the app adds itself', () => {
+    const names = ['Other', 'None', 'Food', 'Rent', 'Fuel', 'Fun', 'Gym', 'Gifts', 'Pets'];
+    const categories = new Map(names.map((name) => [name, category(name, name)]));
+    const rows = nameCategories(
+      [
+        ...names.map((name, i) => ({ categoryId: name, amountMinor: 1_000 - i, count: 1 })),
+        { categoryId: null, amountMinor: 1, count: 1 },
+      ],
+      categories,
+    );
+    // "None" the category is not folded into "Uncategorised"...
+    expect(rows.map((r) => r.name)).toContain('None');
+    expect(rows.map((r) => r.name)).toContain('Uncategorised');
+    expect(rows).toHaveLength(10);
+
+    // ...and with the "Everything else" row added to a full list, no key is used twice.
+    const limited = limitRows(rows, 8);
+    expect(limited.map((r) => r.name)).toContain('Other');
+    expect(limited.at(-1)?.name).toBe('Everything else');
+    expect(new Set(limited.map((r) => r.key)).size).toBe(limited.length);
+  });
+
   it('calls no category and unknown categories "Uncategorised"', () => {
     const rows = nameCategories(
       [

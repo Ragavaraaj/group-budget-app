@@ -28,6 +28,7 @@ import { addMonths, currentPeriod, formatPeriod } from '@/lib/format';
 import { tryLocal } from '@/lib/local-errors';
 import { BudgetBar } from './budget-bar';
 import { BudgetDialog } from './budget-dialog';
+import { budgetChoices } from './choices';
 
 /** `/budgets` (optionally `?group=<id>`): monthly limits for a group and where each one stands. */
 export function BudgetsPage() {
@@ -59,6 +60,7 @@ export function BudgetsPage() {
     (a, b) => Number(b.categoryId === null) - Number(a.categoryId === null) || b.usedBp - a.usedBp,
   );
   const byId = new Map(budgets.map((b) => [b.id, b]));
+  const nothingLeft = budgetChoices(categories, budgets).length === 0;
   const nameOf = (categoryId: string | null) =>
     categoryId === null ? 'Everything' : (lookup.get(categoryId)?.name ?? 'Category');
 
@@ -81,7 +83,12 @@ export function BudgetsPage() {
           </Link>
         </Button>
         <h1 className="flex-1 text-xl font-semibold tracking-tight">Budgets</h1>
-        <Button size="sm" onClick={() => setEditing('new')}>
+        <Button
+          size="sm"
+          disabled={nothingLeft}
+          title={nothingLeft ? 'Everything already has a budget' : undefined}
+          onClick={() => setEditing('new')}
+        >
           <Plus /> Add
         </Button>
       </header>

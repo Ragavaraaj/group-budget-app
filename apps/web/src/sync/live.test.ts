@@ -29,9 +29,9 @@ class FakeSocket implements LiveSocket {
   message(data: string) {
     this.emit('message', { data });
   }
-  drop() {
+  drop(code?: number) {
     this.readyState = 3;
-    this.emit('close', {});
+    this.emit('close', { code });
   }
   private emit(type: string, event: object) {
     for (const listener of this.listeners.get(type) ?? []) listener(event as never);
@@ -150,6 +150,50 @@ describe('LiveChannel', () => {
       vi.advanceTimersByTime(60_000);
     }
     expect(FakeSocket.all.length).toBeGreaterThan(5);
+    live.stop();
+  });
+
+  it('does not come straight back after the server closes it for too many connections', () => {
+    const live = channel();
+    live.start();
+    last().open();
+    last().drop(1008);
+    expect(live.isConnected).toBe(false);
+
+    // Reconnecting at once would evict another window's connection, and so on for ever.
+    vi.advanceTimersByTime(600_000);
+    expect(FakeSocket.all).toHaveLength(1);
+
+    // It is wanted again when the app next comes to the front.
+    setVisibility('hidden');
+    setVisibility('visible');
+    expect(FakeSocket.all).toHaveLength(2);
+    live.stop();
+  });
+
+  it('gives up on a socket that never opens, and tries again later', () => {
+    const live = channel();
+    live.start();
+    const first = last();
+
+    vi.advanceTimersByTime(9_999);
+    expect(first.closed).toBeNull();
+    vi.advanceTimersByTime(1);
+    expect(first.closed?.code).toBe(4001);
+    expect(live.isConnected).toBe(false);
+
+    vi.advanceTimersByTime(1_000);
+    expect(FakeSocket.all).toHaveLength(2);
+    live.stop();
+  });
+
+  it('does not time out a socket that opened', () => {
+    const live = channel();
+    live.start();
+    last().open();
+    vi.advanceTimersByTime(10_000);
+    expect(live.isConnected).toBe(true);
+    expect(last().closed).toBeNull();
     live.stop();
   });
 

@@ -58,6 +58,29 @@ function ruleData(
 }
 
 const allExpenses = () => db.select().from(expenses);
+const generatedAuditRows = async () =>
+  (await db.select().from(auditLog)).filter((a) => a.mutationId.startsWith('recurring:'));
+
+/** A database whose first batch is preceded by `action`: a change that lands mid-run. */
+function beforeBatch(action: () => Promise<unknown>) {
+  let fired = false;
+  const d1 = new Proxy(env.DB, {
+    get(target, prop, receiver) {
+      if (prop === 'batch') {
+        return async (batch: D1PreparedStatement[]) => {
+          if (!fired) {
+            fired = true;
+            await action();
+          }
+          return target.batch(batch);
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return createDb(d1 as D1Database);
+}
 const ruleRow = async (id: string) =>
   (await db.select().from(recurringRules).where(eq(recurringRules.id, id)))[0];
 
@@ -111,15 +134,70 @@ describe('generating recurring expenses', () => {
     expect(await allExpenses()).toHaveLength(1);
   });
 
-  it('writes the same expense, not a second one, if two runs race for the same occurrence', async () => {
+  it('writes one expense, one log entry and one report if two runs race for the same occurrence', async () => {
     const rule = ruleData(groupId, alice.id);
     await push(alice, [upsert('recurring', rule)]);
     const results = await Promise.all([
       generateDueExpenses(db, NOW()),
       generateDueExpenses(db, NOW()),
     ]);
-    expect(results.length).toBe(2);
+    expect(results.map((r) => r.generated).sort()).toEqual([0, 1]);
+    expect(results.flatMap((r) => r.groupIds)).toEqual([groupId]);
     expect(await allExpenses()).toHaveLength(1);
+    expect(await generatedAuditRows()).toHaveLength(1);
+  });
+
+  it('writes nothing for a rule that was edited after the run read it, and uses the edit next time', async () => {
+    const rule = ruleData(groupId, alice.id);
+    await push(alice, [upsert('recurring', rule)]);
+
+    const result = await generateDueExpenses(
+      beforeBatch(() => push(alice, [upsert('recurring', { ...rule, note: 'Rent (new)' }, 1)])),
+      NOW(),
+    );
+    expect(result).toMatchObject({ generated: 0, rules: 0, groupIds: [] });
+    expect(await allExpenses()).toHaveLength(0);
+    expect(await generatedAuditRows()).toHaveLength(0);
+    expect((await ruleRow(rule.id))?.nextDueOn).toBe(today()); // not moved past a date it didn't make
+
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 1, rules: 1 });
+    expect((await allExpenses())[0]).toMatchObject({ note: 'Rent (new)', occurredOn: today() });
+  });
+
+  it('writes nothing for a rule that was deleted after the run read it', async () => {
+    const rule = ruleData(groupId, alice.id);
+    await push(alice, [upsert('recurring', rule)]);
+    const result = await generateDueExpenses(
+      beforeBatch(() => push(alice, [tombstone('delete', 'recurring', rule.id, groupId, 1)])),
+      NOW(),
+    );
+    expect(result.generated).toBe(0);
+    expect(await allExpenses()).toHaveLength(0);
+    expect((await ruleRow(rule.id))?.nextDueOn).toBeNull();
+  });
+
+  it('does not make a date again when an edit put the next date back behind the last one made', async () => {
+    const rule = ruleData(groupId, alice.id, {
+      frequency: 'weekly',
+      startOn: addDays(today(), -7),
+    });
+    await push(alice, [upsert('recurring', rule)]);
+    await generateDueExpenses(db, NOW());
+    expect(await allExpenses()).toHaveLength(2);
+    const entries = (await generatedAuditRows()).length;
+
+    // What a rule edit planned before the run and committed after it leaves behind.
+    await db
+      .update(recurringRules)
+      .set({ nextDueOn: addDays(today(), -7) })
+      .where(eq(recurringRules.id, rule.id));
+
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
+    expect(await allExpenses()).toHaveLength(2);
+    expect(await generatedAuditRows()).toHaveLength(entries);
+    // The rule is moved on, so it doesn't turn up in every run from now on.
+    expect((await ruleRow(rule.id))?.nextDueOn).toBe(addDays(today(), 7));
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
   });
 
   it('catches up on what was missed, oldest first, and keeps each date', async () => {
@@ -184,6 +262,63 @@ describe('generating recurring expenses', () => {
 
     expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 0, rules: 0 });
     expect(await allExpenses()).toHaveLength(0);
+  });
+
+  it('waits while the template names someone who has left, without holding up other rules', async () => {
+    const bob = await signedIn('bob@example.com', 'Bob');
+    const shared = await createSharedGroup(alice);
+    await join(bob, (await makeInvite(alice, shared)).token);
+    const names = ruleData(shared, alice.id, {
+      note: 'Shared rent',
+      startOn: addDays(today(), -10),
+      frequency: 'weekly',
+      payers: [{ userId: alice.id, amountMinor: 8_000_00 }],
+      shares: [
+        { userId: alice.id, amountMinor: 4_000_00 },
+        { userId: bob.id, amountMinor: 4_000_00 },
+      ],
+    });
+    const fine = ruleData(shared, alice.id, {
+      note: 'Alice only',
+      payers: [{ userId: alice.id, amountMinor: 8_000_00 }],
+      shares: [{ userId: alice.id, amountMinor: 8_000_00 }],
+    });
+    await push(alice, [upsert('recurring', names), upsert('recurring', fine)]);
+    await bob.client.request(`/api/groups/${shared}/members/${bob.id}`, { method: 'DELETE' });
+
+    // One place per run, and the waiting rule is the older one: it must not take it.
+    expect(await generateDueExpenses(db, NOW(), 1)).toMatchObject({ generated: 1, rules: 1 });
+    expect((await allExpenses()).map((e) => e.note)).toEqual(['Alice only']);
+    expect(await generateDueExpenses(db, NOW(), 1)).toMatchObject({ generated: 0, rules: 0 });
+
+    // Taking Bob out of the split lets it run again.
+    await push(alice, [
+      upsert('recurring', { ...names, shares: [{ userId: alice.id, amountMinor: 8_000_00 }] }, 1),
+    ]);
+    expect((await generateDueExpenses(db, NOW())).generated).toBeGreaterThan(0);
+  });
+
+  it('lets a member take over a rule whose creator has left, by editing it', async () => {
+    const bob = await signedIn('bob@example.com', 'Bob');
+    const shared = await createSharedGroup(alice);
+    await join(bob, (await makeInvite(alice, shared)).token);
+    const rule = ruleData(shared, bob.id, {
+      payers: [{ userId: alice.id, amountMinor: 8_000_00 }],
+      shares: [{ userId: alice.id, amountMinor: 8_000_00 }],
+    });
+    await push(bob, [upsert('recurring', rule)]);
+    await bob.client.request(`/api/groups/${shared}/members/${bob.id}`, { method: 'DELETE' });
+    expect((await generateDueExpenses(db, NOW())).generated).toBe(0);
+
+    await push(alice, [upsert('recurring', { ...rule, note: 'Rent (Alice)' }, 1)]);
+    expect(await ruleRow(rule.id)).toMatchObject({ createdBy: alice.id, updatedBy: alice.id });
+
+    expect(await generateDueExpenses(db, NOW())).toMatchObject({ generated: 1, rules: 1 });
+    expect((await allExpenses())[0]).toMatchObject({
+      note: 'Rent (Alice)',
+      createdBy: alice.id,
+      updatedBy: alice.id,
+    });
   });
 
   it('keeps the category, the payers and the exact shares of the template', async () => {

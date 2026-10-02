@@ -155,7 +155,9 @@ export class SyncEngine {
 
   /**
    * The live connection came up or went down. Coming up slows the polling down; going down
-   * brings the normal interval back and syncs once, to pick up anything missed meanwhile.
+   * brings the normal interval back and syncs once, to pick up anything missed meanwhile. The
+   * connection is also closed on purpose whenever the app goes to the background, and then
+   * there is nothing to catch up on: the sync on coming back to the front does that.
    */
   setLive(live: boolean): void {
     if (this.live === live) return;
@@ -167,7 +169,7 @@ export class SyncEngine {
       void this.trigger();
     } else {
       this.interval = this.pollMs;
-      void this.trigger();
+      if (this.env.isVisible()) void this.trigger();
     }
   }
 

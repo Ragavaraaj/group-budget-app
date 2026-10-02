@@ -23,8 +23,7 @@ import {
 import { saveBudget } from '@/db/repo';
 import type { LocalBudget, LocalCategory } from '@/db/types';
 import { tryLocal } from '@/lib/local-errors';
-
-const OVERALL = 'all';
+import { budgetChoices, OVERALL } from './choices';
 
 interface BudgetDialogProps {
   open: boolean;
@@ -58,19 +57,12 @@ function BudgetForm({
 }: Omit<BudgetDialogProps, 'open' | 'onOpenChange'> & { onDone: () => void }) {
   const db = useDb();
   const { user } = useMe();
-  const taken = new Set(budgets.map((b) => b.categoryId));
   // A new budget can go to anything that doesn't have one yet; an existing one keeps its target.
-  const choices = [
-    ...(taken.has(null) && existing?.categoryId !== null
-      ? []
-      : [{ id: OVERALL, name: 'Everything' }]),
-    ...categories
-      .filter((c) => !taken.has(c.id) || c.id === existing?.categoryId)
-      .map((c) => ({ id: c.id, name: c.name })),
-  ];
-  const first = choices[0]?.id ?? OVERALL;
-
-  const [target, setTarget] = useState(existing ? (existing.categoryId ?? OVERALL) : first);
+  const choices = budgetChoices(categories, budgets, existing);
+  // Nothing to pick when everything has a budget: there is nothing to save then either.
+  const [target, setTarget] = useState<string | undefined>(
+    existing ? (existing.categoryId ?? OVERALL) : choices[0]?.id,
+  );
   const [amountText, setAmountText] = useState(
     existing ? toRupeesString(existing.amountMinor) : '',
   );
@@ -82,7 +74,7 @@ function BudgetForm({
       className="space-y-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!valid || amountMinor === null) return;
+        if (!valid || amountMinor === null || target === undefined) return;
         void tryLocal(() =>
           saveBudget(db, user.id, {
             id: existing?.id ?? uuidv7(),
@@ -106,18 +98,24 @@ function BudgetForm({
 
       <div className="space-y-2">
         <Label htmlFor="budget-target">For</Label>
-        <Select value={target} onValueChange={setTarget} disabled={existing !== undefined}>
-          <SelectTrigger id="budget-target" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {choices.map((choice) => (
-              <SelectItem key={choice.id} value={choice.id}>
-                {choice.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {target === undefined ? (
+          <p className="text-muted-foreground text-sm" role="status">
+            Everything, and every category, already has a budget. Edit one of those instead.
+          </p>
+        ) : (
+          <Select value={target} onValueChange={setTarget} disabled={existing !== undefined}>
+            <SelectTrigger id="budget-target" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {choices.map((choice) => (
+                <SelectItem key={choice.id} value={choice.id}>
+                  {choice.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -144,7 +142,7 @@ function BudgetForm({
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={!valid}>
+        <Button type="submit" disabled={!valid || target === undefined}>
           Save
         </Button>
       </DialogFooter>

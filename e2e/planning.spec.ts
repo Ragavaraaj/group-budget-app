@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { addExpenseOn, devSignIn, runScheduledJob, uniqueEmail, waitForSynced } from './helpers';
+import {
+  addExpenseOn,
+  daysAgo,
+  devSignIn,
+  runScheduledJob,
+  uniqueEmail,
+  waitForSynced,
+} from './helpers';
 
 test.describe('budgets', () => {
   test('warns at 80% and again when the limit is passed, and counts the whole month', async ({
@@ -125,6 +132,29 @@ test.describe('recurring expenses', () => {
     await second.goto('/');
     await expect(second.getByRole('link', { name: /Flat rent/ })).toBeVisible({ timeout: 15_000 });
     await other.close();
+  });
+
+  test('can start in the past, and fills in what it missed', async ({ page }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('recurring-past'));
+    await page.goto('/settings/recurring/new');
+    await page.getByLabel('Amount').fill('250');
+    await page.getByLabel('What is it?').fill('Weekly help');
+    await page.getByRole('button', { name: 'Weekly' }).click();
+    await page.getByLabel('First on').fill(daysAgo(14));
+    await expect(page.getByText(/already passed are added too/)).toBeVisible();
+
+    // The browser does not hold the form back for a date the hint says is fine.
+    await page.getByRole('button', { name: 'Add recurring expense' }).click();
+    await expect(page.getByTestId('recurring-list')).toContainText('Weekly help');
+    await waitForSynced(page);
+
+    await runScheduledJob(page);
+    await page.goto('/');
+    // Today's occurrence is always in this month, however the last two fall.
+    await expect(page.getByRole('link', { name: /Weekly help/ }).first()).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test('can be paused and deleted, and a paused rule makes nothing', async ({ page }) => {

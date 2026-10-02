@@ -52,6 +52,19 @@ export function useMembers(groupId: string | undefined): LocalMember[] | undefin
   );
 }
 
+/** The people who have left, by group, for screens that explain what depends on them. */
+export function useRemovedMembers(): Map<string, LocalMember[]> | undefined {
+  const db = useDb();
+  return useLiveQuery(async () => {
+    const removed = await db.members.filter((m) => m.removedAt !== null).toArray();
+    const byGroup = new Map<string, LocalMember[]>();
+    for (const member of removed) {
+      byGroup.set(member.groupId, [...(byGroup.get(member.groupId) ?? []), member]);
+    }
+    return byGroup;
+  }, [db]);
+}
+
 /** Categories not deleted. Pass `includeArchived` for management screens. */
 export function useCategories(
   groupId: string | undefined,

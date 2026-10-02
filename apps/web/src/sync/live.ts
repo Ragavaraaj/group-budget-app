@@ -28,6 +28,10 @@ export interface LiveSocket {
 }
 
 const OPEN = 1;
+/** A socket that has not opened by now never will (a proxy that doesn't pass WebSockets on). */
+const CONNECT_WITHIN_MS = 10_000;
+/** Sent by the server when this person already has too many connections open. */
+const CLOSE_POLICY = 1008;
 const PING_EVERY_MS = 30_000;
 /** A ping with no answer (not even a pong) for this long means the connection is dead. */
 const PONG_WITHIN_MS = 20_000;
@@ -46,6 +50,7 @@ export class LiveChannel {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: LiveOptions) {
     this.options = options;
@@ -92,9 +97,16 @@ export class LiveChannel {
       return;
     }
     this.socket = socket;
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null;
+      if (this.socket !== socket || this.connected) return;
+      this.teardown(4001);
+      this.scheduleReconnect();
+    }, CONNECT_WITHIN_MS);
 
     socket.addEventListener('open', () => {
       if (this.socket !== socket) return;
+      this.clearConnectTimer();
       this.attempts = 0;
       this.setConnected(true);
       this.startHeartbeat(socket);
@@ -111,15 +123,21 @@ export class LiveChannel {
         // "pong", or something we don't know: nothing to do.
       }
     }) as (event: never) => void);
-    const closed = () => {
+    const closed = (event?: { code?: number }) => {
       if (this.socket !== socket) return;
       this.socket = null;
+      this.clearConnectTimer();
       this.stopHeartbeat();
       this.setConnected(false);
+      // Closed because this person has too many connections open: coming straight back would
+      // close another one of theirs, which would come back and close the next, for as long as
+      // the windows stay open. So wait to be woken (the app returning to the front, or the
+      // network returning), when this connection is wanted again.
+      if (event?.code === CLOSE_POLICY) return;
       this.scheduleReconnect();
     };
-    socket.addEventListener('close', closed);
-    socket.addEventListener('error', closed);
+    socket.addEventListener('close', closed as (event: never) => void);
+    socket.addEventListener('error', closed as (event: never) => void);
   }
 
   private setConnected(connected: boolean) {
@@ -132,6 +150,7 @@ export class LiveChannel {
   private teardown(code: number) {
     const socket = this.socket;
     this.socket = null;
+    this.clearConnectTimer();
     this.stopHeartbeat();
     try {
       socket?.close(code, 'closing');
@@ -156,6 +175,11 @@ export class LiveChannel {
   private clearReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+  }
+
+  private clearConnectTimer() {
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
   }
 
   // --- keeping the connection honest ------------------------------------------------------------

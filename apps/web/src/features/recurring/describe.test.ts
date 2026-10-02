@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeNext, describeSchedule } from './describe';
+import { describeNext, describeSchedule, joinNames, peopleWhoLeft } from './describe';
 
 describe('describeSchedule', () => {
   it('says the weekday for a weekly rule', () => {
@@ -52,5 +52,43 @@ describe('describeNext', () => {
         format,
       ),
     ).toBe('Finished');
+  });
+});
+
+describe('peopleWhoLeft', () => {
+  const members = [
+    { userId: 'a', displayName: 'Asha', removedAt: null },
+    { userId: 'r', displayName: 'Ravi', removedAt: 100 },
+    { userId: 'm', displayName: 'Meera', removedAt: 200 },
+  ];
+  const rule = (ids: string[]) => ({
+    payers: [{ userId: 'a' }],
+    shares: ids.map((userId) => ({ userId })),
+  });
+
+  it('names the people in the split who have left, and nobody else', () => {
+    expect(peopleWhoLeft(rule(['a', 'r', 'm']), 'a', members)).toEqual({
+      inSplit: ['Ravi', 'Meera'],
+      creator: null,
+    });
+    expect(peopleWhoLeft(rule(['a']), 'a', members)).toEqual({ inSplit: [], creator: null });
+  });
+
+  it('says when the person who set the rule up has left', () => {
+    expect(peopleWhoLeft(rule(['a']), 'r', members)).toEqual({ inSplit: [], creator: 'Ravi' });
+  });
+
+  it('counts a person once even if they pay and owe', () => {
+    const paying = { payers: [{ userId: 'r' }], shares: [{ userId: 'r' }] };
+    expect(peopleWhoLeft(paying, 'a', members).inSplit).toEqual(['Ravi']);
+  });
+});
+
+describe('joinNames', () => {
+  it('reads like a sentence', () => {
+    expect(joinNames([])).toBe('');
+    expect(joinNames(['Asha'])).toBe('Asha');
+    expect(joinNames(['Asha', 'Ravi'])).toBe('Asha and Ravi');
+    expect(joinNames(['Asha', 'Ravi', 'Meera'])).toBe('Asha, Ravi and Meera');
   });
 });

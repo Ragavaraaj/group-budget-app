@@ -2,7 +2,11 @@ import type { CategoryTotal } from '@budget/shared';
 import type { LocalCategory } from '@/db/types';
 
 export interface BreakdownRow {
-  /** Stable key for lists: the lower-cased name, or `none`. */
+  /**
+   * Stable key for lists: `cat:` and the lower-cased name, `none` for no category, and `other`
+   * for the "Everything else" row (`limitRows`). A category called "Other" or "None" can't be
+   * mistaken for either of those.
+   */
   key: string;
   name: string;
   icon: string | undefined;
@@ -24,7 +28,7 @@ export function nameCategories(
   for (const total of totals) {
     const category = total.categoryId ? categories.get(total.categoryId) : undefined;
     const name = category?.name ?? 'Uncategorised';
-    const key = category ? name.trim().toLowerCase() : 'none';
+    const key = category ? `cat:${name.trim().toLowerCase()}` : 'none';
     const row = rows.get(key) ?? {
       key,
       name,

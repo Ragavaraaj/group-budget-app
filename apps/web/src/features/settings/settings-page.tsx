@@ -46,6 +46,7 @@ const REASONS: Record<string, string> = {
   invalid_reference: 'it refers to something that isn’t in the group',
   not_found: 'it no longer exists',
   invalid: 'the server couldn’t read it',
+  limit_reached: 'the group already has as many as it can hold',
 };
 
 export function SettingsPage() {

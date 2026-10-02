@@ -216,11 +216,38 @@ describe('a single amount column', () => {
     const rows = [
       ['02/10/2026', 'Swiggy', '450.00'],
       ['03/10/2026', 'Refund', '-100.00'],
+      ['04/10/2026', 'Amazon', '1299.00'],
     ];
-    expect(guessSpendingSign([['02/10/2026', 'x', '450']], mapping)).toBe('positive');
+    // One refund among the purchases doesn't make the column a bank account's.
+    expect(guessSpendingSign(rows, mapping)).toBe('positive');
     const result = interpretRows(rows, 2, mapping, { dateOrder: 'dmy', spendingIs: 'positive' });
-    expect(result.rows.map((r) => r.amountMinor)).toEqual([45_000]);
+    expect(result.rows.map((r) => r.amountMinor)).toEqual([45_000, 129_900]);
     expect(result.credits).toBe(1);
+  });
+
+  it('keeps the bank-account guess on a tie, and when there is nothing to count', () => {
+    expect(
+      guessSpendingSign(
+        [
+          ['02/10/2026', 'Swiggy', '-450.00'],
+          ['03/10/2026', 'Salary', '50000.00'],
+        ],
+        mapping,
+      ),
+    ).toBe('negative');
+    expect(guessSpendingSign([], mapping)).toBe('negative');
+    expect(guessSpendingSign([['02/10/2026', 'x', 'n/a']], mapping)).toBe('negative');
+  });
+
+  it('calls a mostly-positive column a credit card even when a payment is a big minus', () => {
+    const purchases = Array.from({ length: 40 }, (_, i) => [
+      `${String((i % 28) + 1).padStart(2, '0')}/09/2026`,
+      `Shop ${i}`,
+      '250.00',
+    ]);
+    expect(guessSpendingSign([...purchases, ['30/09/2026', 'Payment', '-5000.00']], mapping)).toBe(
+      'positive',
+    );
   });
 
   it('uses a Dr/Cr marker over the sign when there is one', () => {
@@ -237,6 +264,39 @@ describe('a single amount column', () => {
     );
     expect(result.rows.map((r) => r.amountMinor)).toEqual([45_000, 12_000]);
     expect(result.credits).toBe(1);
+  });
+});
+
+describe('words inside other words', () => {
+  const categories = [
+    { id: 'transport', name: 'Transport' },
+    { id: 'rent', name: 'Rent & home' },
+    { id: 'bills', name: 'Bills & utilities' },
+    { id: 'travel', name: 'Travel' },
+    { id: 'health', name: 'Health' },
+    { id: 'food', name: 'Food & dining' },
+  ];
+
+  it.each([
+    ['TORRENT POWER LTD', null],
+    ['TRF TO CURRENT A/C', null],
+    ['MOTOROLA MOBILITY', null],
+    ['COCA-COLA INDIA', null],
+    ['SOLAR PANELS PVT', null],
+    ['TOYOTA KIRLOSKAR', null],
+    ['STAINOX STEEL', null],
+    ['METROPOLIS HEALTHCARE', null],
+  ])('does not file %s under a category it only contains letters of', (note, expected) => {
+    expect(suggestCategory(note, categories)).toBe(expected);
+  });
+
+  it('still finds the whole words', () => {
+    expect(suggestCategory('RENT FOR OCT', categories)).toBe('rent');
+    expect(suggestCategory('TORRENT POWER ELECTRICITY BILL', categories)).toBe('bills');
+    expect(suggestCategory('OYO ROOMS', categories)).toBe('travel');
+    expect(suggestCategory('PHARMEASY', categories)).toBe('health');
+    expect(suggestCategory('UPI-1MG-ORDER', categories)).toBe('health');
+    expect(suggestCategory('LIC PREMIUM', categories)).toBe('bills');
   });
 });
 
@@ -265,6 +325,9 @@ describe('duplicates and categories', () => {
     expect(suggestCategory('UPI-SWIGGY-order', categories)).toBe('food');
     expect(suggestCategory('Uber trip', categories)).toBe('transport');
     expect(suggestCategory('Payment to Ramesh', categories)).toBeNull();
+    expect(suggestCategory('UPI-OLA-123456', categories)).toBe('transport');
+    expect(suggestCategory('OLACABS BANGALORE', categories)).toBe('transport');
+    expect(suggestCategory('DELHI METRO RECHARGE', categories)).toBe('transport');
     // A group that has no such category gets no suggestion rather than a wrong one.
     expect(suggestCategory('UPI-SWIGGY', [{ id: 'x', name: 'Misc' }])).toBeNull();
   });

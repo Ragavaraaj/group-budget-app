@@ -1,6 +1,8 @@
 import {
+  addDays,
   parseRupees,
   RECURRENCES,
+  RECURRING_MAX_BACKFILL_DAYS,
   type Recurrence,
   type RecurringData,
   recurringDataSchema,
@@ -39,7 +41,7 @@ import {
 } from '@/features/expenses/split-draft';
 import { SplitSection } from '@/features/expenses/split-section';
 import { tryLocal } from '@/lib/local-errors';
-import { describeSchedule, FREQUENCY_LABELS } from './describe';
+import { describeSchedule, FREQUENCY_LABELS, joinNames } from './describe';
 
 /** `/settings/recurring/new` and `/settings/recurring/:id`. */
 export function RecurringFormPage() {
@@ -120,7 +122,18 @@ function RecurringForm({
 
   const back = () => navigate('/settings/recurring', { replace: true });
   const endBeforeStart = endOn !== '' && endOn < startOn;
-  const canSave = resolved.ok && startOn !== '' && !endBeforeStart && !saving;
+  // People who have left can't stay in a rule that runs: it would keep adding to their debt in a
+  // group they can't see, so the server refuses it. A paused rule makes nothing, so it may keep
+  // them (that is how it gets paused); switching it on needs them taken out.
+  const gone = resolved.ok
+    ? participants.filter(
+        (m) =>
+          m.removedAt !== null &&
+          [...resolved.payers, ...resolved.shares].some((p) => p.userId === m.userId),
+      )
+    : [];
+  const blockedByLeavers = shared && active && gone.length > 0;
+  const canSave = resolved.ok && startOn !== '' && !endBeforeStart && !blockedByLeavers && !saving;
 
   const save = async () => {
     if (!resolved.ok || amountMinor === null) return;
@@ -248,7 +261,9 @@ function RecurringForm({
             id="rule-start"
             type="date"
             required
-            min={existing ? undefined : toLocalDate()}
+            // A new rule can start in the past, as far back as the server will catch up (and the
+            // hint below says so); an existing one keeps whatever date it has.
+            min={existing ? undefined : addDays(toLocalDate(), -RECURRING_MAX_BACKFILL_DAYS)}
             value={startOn}
             onChange={(e) => setStartOn(e.target.value)}
           />
@@ -301,6 +316,17 @@ function RecurringForm({
           members={participants}
           resolved={resolved}
         />
+      ) : null}
+
+      {blockedByLeavers ? (
+        <p
+          role="alert"
+          className="text-sm text-amber-600 dark:text-amber-400"
+          data-testid="leavers"
+        >
+          {joinNames(gone.map((m) => m.displayName))} left the group, so they can’t stay in this
+          rule. Take them out of the split above, or turn the rule off.
+        </p>
       ) : null}
 
       {existing ? (

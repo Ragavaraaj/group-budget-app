@@ -106,6 +106,40 @@ test.describe('CSV import', () => {
     await expect(page.getByTestId('import-rows')).not.toContainText('Card payment');
   });
 
+  test('keeps a tick on the same transaction when the dates are read another way', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('import-ticks'));
+    await page.goto('/settings/import');
+    // 13/03 can only be day-first, so reading the dates month-first drops the first row and
+    // moves the others up the list.
+    const csv = [
+      'Date,Description,Amount',
+      '13/03/2026,Alpha shop,-100.00',
+      '05/03/2026,Bravo shop,-200.00',
+      '06/03/2026,Charlie shop,-300.00',
+    ].join('\n');
+    await page.getByTestId('statement-file').setInputFiles({
+      name: 'ticks.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from(csv),
+    });
+    await expect(page.getByTestId('import-summary')).toContainText('3 expenses found');
+
+    await page.getByLabel(/Import Bravo shop/).uncheck();
+    await page.getByLabel('Category for Bravo shop').selectOption({ label: 'Health' });
+    await page.getByRole('radio', { name: 'Month first' }).click();
+
+    await expect(page.getByTestId('import-summary')).toContainText('2 expenses found');
+    await expect(page.getByTestId('import-rows').getByRole('listitem')).toHaveCount(2);
+    await expect(page.getByLabel(/Import Bravo shop/)).not.toBeChecked();
+    await expect(page.getByLabel('Category for Bravo shop')).toHaveValue(/.+/);
+    await expect(page.getByLabel(/Import Charlie shop/)).toBeChecked();
+    await expect(page.getByLabel('Category for Charlie shop')).toHaveValue('');
+    await expect(page.getByRole('button', { name: /^Import 1 expense / })).toBeEnabled();
+  });
+
   test('refuses a file that is not a statement', async ({ page }) => {
     await page.goto('/login');
     await devSignIn(page, uniqueEmail('import-bad'));
