@@ -220,3 +220,64 @@ export async function groupOfTwo(page: Page, browser: Browser, name: string) {
   await page.reload();
   return { bob, link, groupPath };
 }
+
+/**
+ * Chooses an option from a drop-down, whichever kind it is: the browser's own `<select>` or the
+ * app's Select (a button that opens a list of options). Tests that use this keep working when a
+ * native select is replaced by the shadcn one (see BUG-005 in docs/known-bugs.md).
+ */
+export async function chooseOption(
+  page: Page,
+  label: string | RegExp,
+  option: string,
+): Promise<void> {
+  const control = page.getByLabel(label, { exact: typeof label === 'string' });
+  const isNative = await control.evaluate((el) => el.tagName === 'SELECT');
+  if (isNative) {
+    await control.selectOption({ label: option });
+    return;
+  }
+  await control.click();
+  await page.getByRole('option', { name: option, exact: true }).click();
+}
+
+/**
+ * The drop-downs on the page that are the browser's own, by id or label. Not counted: the month
+ * and year lists inside the shadcn calendar, and the hidden copy Radix keeps of each Select.
+ */
+export async function nativeDropdowns(page: Page): Promise<string[]> {
+  return page
+    .locator('select')
+    .evaluateAll((all) =>
+      all
+        .filter(
+          (el) =>
+            el.getAttribute('aria-hidden') !== 'true' && !el.className.toString().includes('rdp-'),
+        )
+        .map((el) => el.id || el.getAttribute('aria-label') || 'unnamed'),
+    );
+}
+
+/** The choices a drop-down offers, as the person reads them (works for either kind). */
+export async function dropdownOptions(page: Page, label: string): Promise<string[]> {
+  const control = page.getByLabel(label, { exact: true });
+  if (await control.evaluate((el) => el.tagName === 'SELECT')) {
+    return control.locator('option').allTextContents();
+  }
+  await control.click();
+  await expect(page.getByRole('option').first()).toBeVisible();
+  const texts = await page.getByRole('option').allTextContents();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('option')).toHaveCount(0);
+  return texts;
+}
+
+/** What a drop-down currently shows as chosen (works for either kind). */
+export async function chosenOption(page: Page, label: string): Promise<string> {
+  const control = page.getByLabel(label, { exact: true });
+  return control.evaluate((el) =>
+    el.tagName === 'SELECT'
+      ? ((el as HTMLSelectElement).selectedOptions[0]?.textContent ?? '')
+      : (el.textContent ?? ''),
+  );
+}

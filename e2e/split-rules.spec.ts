@@ -146,6 +146,18 @@ test.describe('splitting a shared expense', () => {
     await expect(page.getByTestId('balance-Sam')).toHaveText('owes ₹100');
   });
 
+  test('someone else can be the one who paid, and the balances follow', async ({ page }) => {
+    await page.getByLabel('Amount', { exact: true }).fill('900');
+    await page.getByLabel('Paid by', { exact: true }).click();
+    await page.getByRole('option', { name: 'Sam' }).click();
+    await submitButton(page).click();
+
+    // Sam paid ₹900 and it is split equally: Alice owes Sam her ₹450.
+    await openGroupTab(page, 'Balances');
+    await expect(page.getByTestId('my-balance')).toHaveText('You owe ₹450');
+    await expect(page.getByTestId('balance-Sam')).toHaveText('is owed ₹450');
+  });
+
   test('changing the total after choosing a split makes it add up again, or says so', async ({
     page,
   }) => {

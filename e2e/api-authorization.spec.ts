@@ -571,6 +571,46 @@ test.describe('every address that needs a sign-in asks for one', () => {
   });
 });
 
+test.describe('the live connection', () => {
+  const upgrade = { Upgrade: 'websocket', Connection: 'Upgrade' };
+
+  test('is refused unless it is a WebSocket from our origin, with a good id, by a signed-in person', async ({
+    playwright,
+  }) => {
+    const signedIn = await signedInApi(playwright, uniqueEmail('live-api'));
+    const anonymous = await playwright.request.newContext({ baseURL: ORIGIN });
+    const id = 'a-device-connection-id';
+
+    // An ordinary request to the WebSocket address.
+    await expectError(await signedIn.get(`/api/live?id=${id}`), 426, 'expected_websocket');
+    // Asked to upgrade, but from another site's page.
+    for (const origin of ['https://evil.example', 'null', 'http://localhost:8788']) {
+      await expectError(
+        await signedIn.get(`/api/live?id=${id}`, { headers: { ...upgrade, origin } }),
+        403,
+        'bad_origin',
+        origin,
+      );
+    }
+    // Our origin, but the id is not an id.
+    for (const bad of ['', 'short', 'has spaces in it!', 'x'.repeat(65)]) {
+      await expectError(
+        await signedIn.get(`/api/live?id=${encodeURIComponent(bad)}`, { headers: upgrade }),
+        400,
+        'invalid_request',
+      );
+    }
+    // Our origin and a good id, but nobody is signed in.
+    await expectError(
+      await anonymous.get(`/api/live?id=${id}`, { headers: { ...upgrade, origin: ORIGIN } }),
+      401,
+      'unauthorized',
+    );
+    await signedIn.dispose();
+    await anonymous.dispose();
+  });
+});
+
 test.describe('limits', () => {
   test('a group holds at most 50 people, and a full group turns a new joiner away', async ({
     playwright,

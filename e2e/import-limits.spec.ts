@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
-import { devSignIn, uniqueEmail } from './helpers';
+import { chooseOption, devSignIn, uniqueEmail } from './helpers';
 
 // What the bank-statement import does with files that are wrong, empty, too big or only partly
 // usable. The happy path, duplicates and column correction are in import.spec.ts.
@@ -92,12 +92,12 @@ test.describe('CSV import: files that cannot be used', () => {
     await chooseFile(page, 'columns.csv', csv);
     await expect(page.getByTestId('import-summary')).toContainText('1 expense found');
 
-    await page.getByLabel('Date', { exact: true }).selectOption({ label: 'Not in this file' });
+    await chooseOption(page, 'Date', 'Not in this file');
     await expect(page.getByTestId('import-summary')).toContainText('0 expenses found');
     await expect(page.getByText(/No spending found/)).toBeVisible();
     await expect(page.getByRole('button', { name: /^Import 0 expenses/ })).toBeDisabled();
 
-    await page.getByLabel('Date', { exact: true }).selectOption({ label: 'Date' });
+    await chooseOption(page, 'Date', 'Date');
     await expect(page.getByTestId('import-summary')).toContainText('1 expense found');
   });
 

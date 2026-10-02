@@ -69,6 +69,117 @@ test.describe('creating a group', () => {
   });
 });
 
+test.describe('owner actions with no connection', () => {
+  test('each says it needs a connection, and nothing changes until it is back', async ({
+    page,
+    context,
+  }) => {
+    await groupWithPlaceholder(page, 'No signal');
+    await openGroupTab(page, 'Members');
+    const offline = 'You’re offline. This needs a connection.';
+    await context.setOffline(true);
+
+    await page.getByRole('button', { name: 'Invite people' }).click();
+    await expect(page.getByRole('dialog').getByRole('alert')).toHaveText(offline);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'Stop all links' }).click();
+    await expect(page.getByText(offline).first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Add someone without the app' }).click();
+    await page.getByRole('dialog').getByLabel('Name').fill('Tom');
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByText(offline).first()).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+
+    await page.getByRole('button', { name: 'Remove Sam' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click();
+    await expect(page.getByText(offline).first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Rename group' }).click();
+    await page.getByRole('dialog').getByLabel('Group name').fill('Renamed offline');
+    await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByRole('dialog').getByRole('alert')).toHaveText(offline);
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+
+    // Nothing happened: Sam is still in, Tom never was, and the name is the old one.
+    const list = page.getByTestId('members-list');
+    await expect(list.getByRole('listitem').filter({ hasText: 'Sam' })).toHaveCount(1);
+    await expect(list.getByRole('listitem').filter({ hasText: 'Tom' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'No signal' })).toBeVisible();
+
+    // Back online, the same action works.
+    await context.setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.getByRole('button', { name: 'Add someone without the app' }).click();
+    await page.getByRole('dialog').getByLabel('Name').fill('Tom');
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByText('Tom was added')).toBeVisible();
+  });
+});
+
+test.describe('a new group', () => {
+  test('starts empty on every tab, and offers "add expense" only where it makes sense', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('alice'), 'Alice');
+    await createGroup(page, 'Fresh');
+    const add = page.getByRole('link', { name: 'Add expense' });
+
+    await expect(page.getByText(/No expenses in/)).toBeVisible();
+    await expect(page.getByTestId('group-month-total')).toContainText('₹0');
+    await expect(page.getByRole('button', { name: 'Next month' })).toBeDisabled();
+    await expect(add).toBeVisible();
+
+    await openGroupTab(page, 'Balances');
+    await expect(page.getByTestId('my-balance')).toHaveText('All settled up');
+    await expect(page.getByText('Nobody owes anybody. Nice.')).toBeVisible();
+    await expect(add).toBeVisible();
+
+    await openGroupTab(page, 'Activity');
+    await expect(page.getByText('Nothing has happened here yet.')).toBeVisible();
+    await expect(add).toHaveCount(0);
+
+    await openGroupTab(page, 'Members');
+    await expect(page.getByTestId('members-list').getByRole('listitem')).toHaveCount(1);
+    await expect(page.getByTestId('members-list')).toContainText('Alice');
+    await expect(page.getByTestId('members-list')).toContainText('(you)');
+    await expect(add).toHaveCount(0);
+
+    // An earlier month is empty too, and the group's total follows.
+    await openGroupTab(page, 'Expenses');
+    await page.getByRole('button', { name: 'Previous month' }).click();
+    await expect(page.getByText(/No expenses in/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Next month' })).toBeEnabled();
+  });
+
+  test('the form’s group chooser switches between a shared expense and a personal one', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('alice'), 'Alice');
+    await createGroup(page, 'Trip');
+
+    await page.goto('/add');
+    await expect(page.getByRole('radio', { name: 'Equally' })).toHaveCount(0); // personal
+    await page.getByLabel('Group', { exact: true }).click();
+    await page.getByRole('option', { name: 'Trip' }).click();
+    await expect(page).toHaveURL(/\/add\?group=/);
+    await expect(page.getByRole('radio', { name: 'Equally' })).toBeVisible();
+    await expect(page.getByLabel('Paid by', { exact: true })).toBeVisible();
+
+    await page.getByLabel('Group', { exact: true }).click();
+    await page.getByRole('option', { name: 'Personal' }).click();
+    await expect(page.getByRole('radio', { name: 'Equally' })).toHaveCount(0);
+
+    // An address naming a group that is not there is just the personal form.
+    await page.goto(`/add?group=${missingId()}`);
+    await expect(page.getByRole('radio', { name: 'Equally' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Add expense' })).toBeVisible();
+  });
+});
+
 test.describe('who can do what in a group', () => {
   test('the owner can rename it; a member sees the new name but cannot rename', async ({
     page,
