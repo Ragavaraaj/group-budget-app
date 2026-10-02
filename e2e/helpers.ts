@@ -77,6 +77,8 @@ export async function pickDate(page: Page, label: string, iso: string): Promise<
   await page.getByRole('combobox', { name: 'Choose the Year' }).selectOption(String(year));
   await page.getByRole('combobox', { name: 'Choose the Month' }).selectOption(String(month - 1));
   await page.locator(`[data-day="${iso}"] button`).click();
+  // The calendar closes with a short animation; a second picker must not meet the first one.
+  await expect(page.getByRole('combobox', { name: 'Choose the Year' })).toHaveCount(0);
 }
 
 /** Adds a personal expense through the form, on a given day. */
@@ -192,4 +194,22 @@ export async function openGroupExpenseForm(page: Page): Promise<void> {
 /** The form's submit button, which stays disabled until what was typed can be saved. */
 export function submitButton(page: Page, label: 'Add expense' | 'Save changes' = 'Add expense') {
   return page.getByRole('button', { name: label });
+}
+
+/**
+ * Alice (signed in on `page`) owns a new group that Bob has joined from his own browser, and
+ * Alice's device already knows about him. Returns Bob's browser, the invite link, and the group's
+ * address (`/groups/<id>`).
+ */
+export async function groupOfTwo(page: Page, browser: Browser, name: string) {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, name);
+  const groupPath = new URL(page.url()).pathname;
+  const link = await createInviteLink(page);
+  const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
+  await joinViaLink(bob.page, link);
+  await expect(bob.page.getByRole('heading', { name })).toBeVisible();
+  await page.reload();
+  return { bob, link, groupPath };
 }

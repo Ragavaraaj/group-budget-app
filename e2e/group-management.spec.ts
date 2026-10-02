@@ -1,11 +1,11 @@
-import { type Browser, expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import {
   addPlaceholderMember,
   createGroup,
   createInviteLink,
   devSignIn,
+  groupOfTwo,
   groupWithPlaceholder,
-  joinViaLink,
   missingId,
   newPerson,
   openGroupExpenseForm,
@@ -14,19 +14,6 @@ import {
   uniqueEmail,
   waitForSynced,
 } from './helpers';
-
-/** Alice (on `page`) owns a new group that Bob has joined; her device already knows about him. */
-async function groupOfTwo(page: Page, browser: Browser, name: string) {
-  await page.goto('/login');
-  await devSignIn(page, uniqueEmail('alice'), 'Alice');
-  await createGroup(page, name);
-  const link = await createInviteLink(page);
-  const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
-  await joinViaLink(bob.page, link);
-  await expect(bob.page.getByRole('heading', { name })).toBeVisible();
-  await page.reload();
-  return { bob, link };
-}
 
 async function addDinner(page: Page, amount: string, note: string) {
   await openGroupTab(page, 'Expenses');
