@@ -98,6 +98,13 @@
     -webkit-tap-highlight-color: transparent;
     color-scheme: light dark;
   }
+  /* Scrolling still works everywhere; the bars just aren't drawn. */
+  * {
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     overscroll-behavior-y: none;

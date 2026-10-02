@@ -77,7 +77,11 @@ export function SettingsPage() {
         <CardContent className="divide-y px-0">
           {[
             { to: '/settings/categories', label: 'Categories', icon: Tags },
-            { to: '/budgets', label: 'Budgets', icon: PiggyBank },
+            {
+              to: `/budgets?from=${encodeURIComponent('/settings')}`,
+              label: 'Budgets',
+              icon: PiggyBank,
+            },
             { to: '/settings/recurring', label: 'Recurring expenses', icon: Repeat },
             { to: '/settings/import', label: 'Import from CSV', icon: FileUp },
           ].map(({ to, label, icon: Icon }) => (

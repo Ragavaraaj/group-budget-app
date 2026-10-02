@@ -272,7 +272,11 @@ export function InsightsPage() {
                   <PiggyBank className="size-4" aria-hidden="true" /> Budgets
                 </CardTitle>
                 <Button asChild variant="ghost" size="sm">
-                  <Link to={`/budgets?group=${scoped.id}`}>Manage</Link>
+                  <Link
+                    to={`/budgets?group=${scoped.id}&from=${encodeURIComponent(`/insights?group=${scoped.id}`)}`}
+                  >
+                    Manage
+                  </Link>
                 </Button>
               </CardHeader>
               <CardContent className="space-y-4">

@@ -42,6 +42,13 @@ export function BudgetsPage() {
     ? (requested ?? personalGroupId)
     : personalGroupId;
 
+  // Go back to wherever the person came from (Settings, a group, Insights); Insights if unknown.
+  const from = params.get('from');
+  const backTo =
+    from?.startsWith('/') && !from.startsWith('//')
+      ? from
+      : `/insights${groupId === personalGroupId ? '' : `?group=${groupId}`}`;
+
   const nowPeriod = currentPeriod(startDay);
   const [picked, setPicked] = useState<string | null>(null);
   const period = picked ?? nowPeriod;
@@ -77,8 +84,8 @@ export function BudgetsPage() {
   return (
     <div className="space-y-5">
       <header className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="icon" aria-label="Back to insights">
-          <Link to={`/insights${groupId === personalGroupId ? '' : `?group=${groupId}`}`}>
+        <Button asChild variant="ghost" size="icon" aria-label="Back">
+          <Link to={backTo}>
             <ArrowLeft />
           </Link>
         </Button>
@@ -99,7 +106,7 @@ export function BudgetsPage() {
           value={groupId}
           onValueChange={(value) => {
             setPicked(null);
-            setParams({ group: value }, { replace: true });
+            setParams(from ? { group: value, from } : { group: value }, { replace: true });
           }}
         >
           <SelectTrigger className="w-full" aria-label="Group">
