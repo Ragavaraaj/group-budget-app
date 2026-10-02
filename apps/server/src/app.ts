@@ -5,11 +5,15 @@ import { secureHeaders } from 'hono/secure-headers';
 import { type Config, loadConfig } from './config';
 import { createDb, type Db } from './db/client';
 import { createLogger, type Logger } from './logger';
+import { originCheck } from './middleware/origin-check';
 import { requestLogger } from './middleware/request-logger';
+import type { AuthContext } from './middleware/session';
+import { meRoutes } from './modules/auth/me';
+import { authRoutes } from './modules/auth/routes';
 
 export interface AppEnv {
   Bindings: Cloudflare.Env;
-  Variables: { config: Config; logger: Logger; db: Db };
+  Variables: { config: Config; logger: Logger; db: Db; auth: AuthContext | null };
 }
 
 /** Builds the Hono app. The Worker exports it; tests call `app.request(path, init, env)`. */
@@ -31,6 +35,12 @@ export function createApp() {
     await next();
     if (!c.res.headers.has('Cache-Control')) c.header('Cache-Control', 'no-store');
   });
+
+  // Anything that changes state must come from our own origin (CSRF, on top of SameSite cookies).
+  app.use('/api/*', originCheck());
+
+  app.route('/api/auth', authRoutes());
+  app.route('/api/me', meRoutes());
 
   app.get('/api/healthz', async (c) => {
     try {

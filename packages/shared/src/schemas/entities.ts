@@ -94,6 +94,8 @@ const syncMetaSchema = z.object({
   updatedAt: z.number().int(),
   /** Set (epoch ms) when the row was deleted. Deleted rows are kept so deletes sync. */
   deletedAt: z.number().int().nullable(),
+  /** Who made the latest change; the activity feed is built from this. */
+  updatedBy: uuidSchema,
   serverSeq: z.number().int().min(1),
 });
 
