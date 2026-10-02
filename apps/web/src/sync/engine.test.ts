@@ -162,6 +162,16 @@ describe('pushing', () => {
       expect(await db.outbox.count()).toBe(1);
     });
 
+    it('does not send the same request forever if the server answers nothing', async () => {
+      await queueExpenses(2);
+      const api = new FakeApi(() => []);
+      const engine = engineFor(api);
+      await engine.trigger();
+      expect(api.pushes).toHaveLength(1); // one attempt, not an endless loop
+      expect(engine.getSnapshot().state).toBe('error');
+      expect(await db.outbox.count()).toBe(2); // nothing lost
+    });
+
     it('stops and keeps the queue when the session has ended', async () => {
       await queueExpenses(2);
       const engine = engineFor(new FakeApi(() => Promise.reject(httpError(401))));

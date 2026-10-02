@@ -21,7 +21,7 @@ import { cachedMe } from './storage';
 
 export type AuthState =
   | { status: 'loading' }
-  | { status: 'signed_out'; config: AuthConfigResponse | null; offline: boolean }
+  | { status: 'signed_out'; offline: boolean }
   | {
       status: 'signed_in';
       me: MeResponse;
@@ -33,6 +33,8 @@ export type AuthState =
 
 interface AuthApi {
   state: AuthState;
+  /** What the login screen may offer; null until known (or when offline). */
+  config: AuthConfigResponse | null;
   /** Re-checks the session with the server. */
   refresh(): Promise<void>;
   /** Dev-only one-step sign-in. */
@@ -57,6 +59,7 @@ async function loadConfig(): Promise<AuthConfigResponse | null> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: 'loading' });
+  const [config, setConfig] = useState<AuthConfigResponse | null>(null);
   // True while an installed-app sign-in may be finishing in a browser (see the watcher below).
   const [watching, setWatching] = useState(hasPendingAttempt);
 
@@ -73,16 +76,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cached) {
           setState({ status: 'signed_in', me: cached, sessionExpired: true, offline: false });
         } else {
-          setState({ status: 'signed_out', config: await loadConfig(), offline: false });
+          setState({ status: 'signed_out', offline: false });
         }
       } else if (cached) {
         setState({ status: 'signed_in', me: cached, sessionExpired: false, offline: true });
       } else {
-        setState({
-          status: 'signed_out',
-          config: null,
-          offline: error instanceof NetworkError,
-        });
+        setState({ status: 'signed_out', offline: error instanceof NetworkError });
       }
     }
   }, []);
@@ -90,6 +89,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Whenever the person has to sign in, find out what sign-in options this server offers.
+  const needsSignIn =
+    state.status === 'signed_out' || (state.status === 'signed_in' && state.sessionExpired);
+  useEffect(() => {
+    if (needsSignIn && !config) void loadConfig().then(setConfig);
+  }, [needsSignIn, config]);
 
   // Installed-app sign-in: after the browser finishes it, collect it here. Try when the app comes
   // back to the front, and every couple of seconds while it is waiting.
@@ -142,12 +148,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     cancelAttempt();
     cachedMe.clear();
     if (current.status === 'signed_in') await wipeDb(current.me.user.id);
-    setState({ status: 'signed_out', config: await loadConfig(), offline: false });
+    setState({ status: 'signed_out', offline: false });
   }, [state]);
 
   const api = useMemo<AuthApi>(
-    () => ({ state, refresh, devLogin, markSessionExpired, noteAttemptStarted, signOut }),
-    [state, refresh, devLogin, markSessionExpired, noteAttemptStarted, signOut],
+    () => ({ state, config, refresh, devLogin, markSessionExpired, noteAttemptStarted, signOut }),
+    [state, config, refresh, devLogin, markSessionExpired, noteAttemptStarted, signOut],
   );
   return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>;
 }

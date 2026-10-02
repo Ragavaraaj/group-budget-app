@@ -16,6 +16,7 @@ import {
   useGroup,
   useMembers,
 } from '@/db/hooks';
+import type { LocalMember } from '@/db/types';
 import { ExpenseList } from '@/features/expenses/expense-list';
 import { addMonths, currentMonth, formatMonth } from '@/lib/format';
 import { ActivityTab } from './activity-tab';
@@ -120,13 +121,7 @@ export function GroupPage() {
   );
 }
 
-function ExpensesTab({
-  groupId,
-  members,
-}: {
-  groupId: string;
-  members: ReturnType<typeof useMembers> & object;
-}) {
+function ExpensesTab({ groupId, members }: { groupId: string; members: LocalMember[] }) {
   const [month, setMonth] = useState(currentMonth);
   const expenses = useExpensesInMonth(groupId, month);
   const categories = useCategoryLookup(groupId);
@@ -185,13 +180,7 @@ function ExpensesTab({
   );
 }
 
-function BalancesLoader({
-  groupId,
-  members,
-}: {
-  groupId: string;
-  members: NonNullable<ReturnType<typeof useMembers>>;
-}) {
+function BalancesLoader({ groupId, members }: { groupId: string; members: LocalMember[] }) {
   const expenses = useAllExpenses(groupId);
   const settlements = useAllSettlements(groupId);
   const money = useMemo(
@@ -210,7 +199,7 @@ function ActivityLoader({
   meId,
 }: {
   groupId: string;
-  members: NonNullable<ReturnType<typeof useMembers>>;
+  members: LocalMember[];
   meId: string;
 }) {
   const expenses = useAllExpenses(groupId);

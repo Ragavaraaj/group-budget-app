@@ -26,6 +26,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCategories, useExpense, useGroups, useMembers } from '@/db/hooks';
 import { deleteExpense, restoreExpense, saveExpense } from '@/db/repo';
+import type { LocalExpense } from '@/db/types';
 import { cn } from '@/lib/utils';
 import { draftFromExpense, newDraft, resolveSplit, type SplitDraft } from './split-draft';
 import { SplitSection } from './split-section';
@@ -82,7 +83,7 @@ function AddExpense() {
 }
 
 interface ExpenseFormProps {
-  existing: (ReturnType<typeof useExpense> & object) | null;
+  existing: LocalExpense | null;
   groupId: string;
 }
 

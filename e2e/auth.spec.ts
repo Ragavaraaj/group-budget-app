@@ -133,9 +133,14 @@ test('when the session ends the app keeps working and nothing waiting is lost', 
     page.getByRole('status').filter({ hasText: /Sign in to sync · 1 waiting/ }),
   ).toBeVisible();
 
-  // Signing in again sends it.
-  await devSignIn(page, email, 'Expired Person');
-  await page.reload();
+  // Signing in again, through the app's own sign-in screen, sends it.
+  await page.getByRole('link', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByText('Your session ended')).toBeVisible();
+  await page.getByLabel('Dev sign-in').fill(email);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Expenses' })).toBeVisible();
   await waitForSynced(page);
   await expect(page.getByRole('link', { name: /Saved while signed out/ })).not.toContainText(
     'Not synced yet',

@@ -216,6 +216,13 @@ export class SyncEngine {
       const results = await this.pushChunk(entries);
       await this.settle(entries, results);
       sent = true;
+
+      // Every change should have been answered. If none was (a misbehaving server), stop here
+      // rather than sending the same request forever; the next sync tries again.
+      const stillQueued = await this.db.outbox.bulkGet(entries.map((e) => e.seq as number));
+      if (stillQueued.every((entry) => entry !== undefined)) {
+        throw new Error('The server did not answer any of the queued changes');
+      }
     }
   }
 

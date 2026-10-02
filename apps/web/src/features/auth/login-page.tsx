@@ -22,14 +22,13 @@ const ERRORS: Record<string, string> = {
  * new person can be admitted by it.
  */
 export function SignInPanel({ invite }: { invite?: string }) {
-  const { state, devLogin, noteAttemptStarted } = useAuth();
+  const { state, config, devLogin, noteAttemptStarted } = useAuth();
   const [params] = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState('dev@example.com');
   const [waiting, setWaiting] = useState(() => isStandalone() && hasPendingAttempt());
 
   if (state.status === 'loading') return null;
-  const config = state.status === 'signed_out' ? state.config : null;
   const offline = state.status === 'signed_out' && state.offline;
   const error = ERRORS[params.get('error') ?? ''];
 
