@@ -61,17 +61,35 @@ Migrations live in `apps/server/drizzle`, are committed, and are applied by Wran
 
 ## Deploying to Cloudflare
 
-The deploy path is drafted but has not been run against a real account yet.
+Every merge to `main` deploys automatically: the `deploy` job in `.github/workflows/ci.yml` runs
+after the checks and the end-to-end tests pass, applies the database migrations, then deploys the
+Worker and the web app. The workflow has not been run against a real account yet, so treat the first
+deploy as the test of it. Until the setup below is done the job just reports what is missing and
+ends green.
 
-1. `npx wrangler login`, then create the database near your users:
-   `npx wrangler d1 create group-budget --location apac` (run from `apps/server`).
-2. Put the printed `database_id` into `apps/server/wrangler.jsonc`.
-3. `npm run db:migrate:remote -w @budget/server`, then `npm run deploy`.
-4. The app is live at `https://group-budget.<your-subdomain>.workers.dev`. A custom domain can be
-   attached later in the Cloudflare dashboard; note that an installed PWA is tied to its origin.
+One-time setup:
 
-Secrets are set with `npx wrangler secret put <NAME>` from `apps/server`, never committed. For
-automated deploys see `.github/workflows/deploy.yml`.
+1. **Create the database** near your users, either in the dashboard (Storage & Databases, D1,
+   name `group-budget`, location hint Asia-Pacific) or with the CLI from `apps/server`:
+   `npx wrangler login`, then `npx wrangler d1 create group-budget --location apac`. Put its id
+   in `apps/server/wrangler.jsonc` as `database_id` (an id is not a secret) and merge that.
+2. **Create an API token**: dashboard, Manage account, Account API tokens, Create token, start from
+   the **Edit Cloudflare Workers** template, scope it to your account, and make sure it also has
+   **D1: Edit** (the migration step needs it).
+3. **Add two repository secrets** (GitHub, Settings, Secrets and variables, Actions):
+   `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (shown in the dashboard under
+   Workers & Pages).
+4. **Deploy**: merge to `main`, or open Actions, CI, Run workflow on `main`. The app is live at
+   `https://group-budget.<your-subdomain>.workers.dev`. If Cloudflare says your account has no
+   `workers.dev` subdomain yet, register one in the dashboard (Workers & Pages) and run it again.
+
+Optional: add required reviewers to a `production` environment (Settings, Environments) to approve
+each deploy by hand. A custom domain can be attached later in the dashboard; note that an installed
+PWA is tied to its origin.
+
+Worker secrets (Google credentials, later) are set with `npx wrangler secret put <NAME>` from
+`apps/server`, never committed. To roll back, use the dashboard's Deployments tab or
+`npx wrangler rollback`; migrations are forward-only, so rolling back code never needs an un-migrate.
 
 ## Notes
 
