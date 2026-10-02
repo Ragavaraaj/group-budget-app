@@ -16,7 +16,8 @@ migration. Accounts, expenses and groups are the next milestones.
 
 ## Quick start
 
-Requires Node 22.12+ (see `.nvmrc`). No Cloudflare account is needed for local development.
+Requires Node 26 (see `.nvmrc`), which bundles npm 11. No Cloudflare account is needed for local
+development.
 
 ```sh
 npm ci
@@ -77,9 +78,11 @@ automated deploys see `.github/workflows/deploy.yml`.
 - **TypeScript only.** Config files are `.ts` too (`vite.config.ts`, `vitest.config.ts`,
   `playwright.config.ts`, ...). `wrangler.jsonc`, `biome.json` and `tsconfig*.json` are the only
   non-code config. CI runs `check:ts-only`.
-- **Changing dependencies needs npm 11+** (bundled with Node 24; `npx npm@11 install <pkg>` works
-  anywhere). The npm 10 that ships with Node 22 hits a peer-resolution bug with Vitest. `npm ci`,
-  which CI uses, works fine on either.
+- **Node 26 and npm 11.** npm 10 (Node 22) crashes resolving Vitest's peer set, so changing
+  dependencies needs npm 11+. npm 11 also refuses to run dependency install scripts unless they are
+  approved; `allowScripts` in `package.json` approves the two that ship native binaries
+  (`esbuild`, `workerd`). A new dependency that needs one shows a warning; approve it with
+  `npm install-scripts approve <pkg> --no-allow-scripts-pin` after checking it is trustworthy.
 - **Vitest is on 4.x** because Cloudflare's Workers test pool does not support 5 yet.
 - **Types for the Worker bindings** are generated into `apps/server/worker-configuration.d.ts`
   (gitignored). `npm run typecheck` regenerates them; run `npm run cf-typegen -w @budget/server`
