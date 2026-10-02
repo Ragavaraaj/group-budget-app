@@ -1,4 +1,4 @@
-import { type LucideIcon, ReceiptIndianRupee, Settings, Users } from 'lucide-react';
+import { ChartColumn, type LucideIcon, ReceiptIndianRupee, Settings, Users } from 'lucide-react';
 import { NavLink } from 'react-router';
 import { cn } from '@/lib/utils';
 
@@ -11,6 +11,7 @@ interface NavItem {
 
 const items: NavItem[] = [
   { to: '/', label: 'Expenses', icon: ReceiptIndianRupee, end: true },
+  { to: '/insights', label: 'Insights', icon: ChartColumn },
   { to: '/groups', label: 'Groups', icon: Users },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
@@ -21,7 +22,7 @@ export function BottomNav() {
       aria-label="Primary"
       className="bg-background/95 pb-safe supports-[backdrop-filter]:bg-background/80 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur"
     >
-      <ul className="mx-auto grid max-w-xl grid-cols-3">
+      <ul className="mx-auto grid max-w-xl grid-cols-4">
         {items.map(({ to, label, icon: Icon, end }) => (
           <li key={to}>
             <NavLink

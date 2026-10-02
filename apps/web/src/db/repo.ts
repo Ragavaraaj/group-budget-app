@@ -185,6 +185,8 @@ export const restoreSettlement = (db: BudgetDb, me: string, id: string) =>
   setDeleted(db, 'settlement', id, me, false);
 export const deleteBudget = (db: BudgetDb, me: string, id: string) =>
   setDeleted(db, 'budget', id, me, true);
+export const restoreBudget = (db: BudgetDb, me: string, id: string) =>
+  setDeleted(db, 'budget', id, me, false);
 export const deleteRecurring = (db: BudgetDb, me: string, id: string) =>
   setDeleted(db, 'recurring', id, me, true);
 export const restoreRecurring = (db: BudgetDb, me: string, id: string) =>

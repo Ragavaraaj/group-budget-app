@@ -11,7 +11,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { useDb, useMe } from '@/auth/sync-context';
-import { CategoryIcon } from '@/components/category-icon';
 import { NotFoundPage } from '@/components/not-found-page';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +27,7 @@ import { useCategories, useExpense, useGroups, useMembers } from '@/db/hooks';
 import { deleteExpense, restoreExpense, saveExpense } from '@/db/repo';
 import type { LocalExpense } from '@/db/types';
 import { tryLocal } from '@/lib/local-errors';
-import { cn } from '@/lib/utils';
+import { AmountField, CategoryChips } from './form-fields';
 import { draftFromExpense, newDraft, resolveSplit, type SplitDraft } from './split-draft';
 import { SplitSection } from './split-section';
 
@@ -229,53 +228,14 @@ function ExpenseForm({ existing, groupId }: ExpenseFormProps) {
         ) : null}
       </header>
 
-      <div className="space-y-2">
-        <Label htmlFor="amount">Amount</Label>
-        <div className="relative">
-          <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-2xl">
-            ₹
-          </span>
-          <Input
-            id="amount"
-            // Amount first: the keyboard is up and the cursor is here as soon as the page opens.
-            autoFocus={!existing}
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="0"
-            className="h-14 pl-9 text-3xl font-semibold tabular-nums md:text-3xl"
-            value={amountText}
-            onChange={(e) => setAmountText(e.target.value)}
-            aria-invalid={amountText !== '' && amountMinor === null}
-          />
-        </div>
-      </div>
+      <AmountField
+        value={amountText}
+        onChange={setAmountText}
+        invalid={amountText !== '' && amountMinor === null}
+        autoFocus={!existing}
+      />
 
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">Category</legend>
-        <div className="flex flex-wrap gap-2">
-          {categories.map((category) => (
-            <button
-              key={category.id}
-              type="button"
-              aria-pressed={categoryId === category.id}
-              onClick={() => setCategoryId(categoryId === category.id ? null : category.id)}
-              className={cn(
-                'flex items-center gap-2 rounded-full border py-1 pr-3 pl-1 text-sm transition-colors',
-                categoryId === category.id
-                  ? 'border-primary bg-primary/10 font-medium'
-                  : 'hover:bg-accent',
-              )}
-            >
-              <CategoryIcon
-                icon={category.icon}
-                color={category.color}
-                className="size-7 [&_svg]:size-4"
-              />
-              {category.name}
-            </button>
-          ))}
-        </div>
-      </fieldset>
+      <CategoryChips categories={categories} value={categoryId} onChange={setCategoryId} />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
