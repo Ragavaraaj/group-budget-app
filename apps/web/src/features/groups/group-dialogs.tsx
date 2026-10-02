@@ -19,6 +19,8 @@ import { ApiError, apiCall, apiSend, NetworkError } from '@/lib/api';
 const ERRORS: Record<string, string> = {
   too_many_groups: 'You’re in the maximum number of groups.',
   forbidden: 'Only the group owner can do that.',
+  not_found: 'That’s no longer there. Pull to refresh and try again.',
+  invalid_target: 'Pick someone else in the group.',
 };
 
 function explain(error: unknown): string {

@@ -2,7 +2,9 @@ import {
   acceptInviteRequestSchema,
   type CreateInviteResponse,
   createGroupRequestSchema,
+  type ListInvitesResponse,
   renameGroupRequestSchema,
+  transferOwnershipRequestSchema,
   uuidSchema,
 } from '@budget/shared';
 import { Hono } from 'hono';
@@ -12,12 +14,16 @@ import {
   acceptInvite,
   createGroup,
   createInvite,
+  deleteGroup,
   findMembership,
+  listOpenInvites,
   previewInvite,
   reinstateMember,
   removeMember,
   renameGroup,
+  revokeInvite,
   revokeInvites,
+  transferOwnership,
 } from './repo';
 
 /**
@@ -75,6 +81,40 @@ export function groupRoutes() {
     return c.json(invite, 201);
   });
 
+  // The links that can still be used, so the owner can end them one by one.
+  groups.get('/:groupId/invites', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    if (!groupId.success) return c.json({ error: 'invalid_request' }, 400);
+
+    const membership = await findMembership(c.get('db'), groupId.data, auth.user.id);
+    if (!membership || membership.removedAt !== null) return c.json({ error: 'not_found' }, 404);
+    if (membership.role !== 'owner' || membership.group.isPersonal) {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+    const body: ListInvitesResponse = {
+      invites: await listOpenInvites(c.get('db'), groupId.data, Date.now()),
+    };
+    return c.json(body);
+  });
+
+  groups.delete('/:groupId/invites/:inviteId', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    const inviteId = uuidSchema.safeParse(c.req.param('inviteId'));
+    if (!groupId.success || !inviteId.success) return c.json({ error: 'invalid_request' }, 400);
+
+    const membership = await findMembership(c.get('db'), groupId.data, auth.user.id);
+    if (!membership || membership.removedAt !== null) return c.json({ error: 'not_found' }, 404);
+    if (membership.role !== 'owner' || membership.group.isPersonal) {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+    const revoked = await revokeInvite(c.get('db'), groupId.data, inviteId.data, Date.now());
+    return revoked ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404);
+  });
+
   // Ends every open invite link of the group (the owner's "stop the links I sent" button).
   groups.delete('/:groupId/invites', async (c) => {
     const auth = c.get('auth');
@@ -89,6 +129,34 @@ export function groupRoutes() {
     }
     const revoked = await revokeInvites(c.get('db'), groupId.data, Date.now());
     return c.json({ revoked });
+  });
+
+  groups.post('/:groupId/transfer', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    const parsed = transferOwnershipRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!groupId.success || !parsed.success) return c.json({ error: 'invalid_request' }, 400);
+
+    const result = await transferOwnership(
+      c.get('db'),
+      groupId.data,
+      auth.user.id,
+      parsed.data.userId,
+    );
+    if (result.ok) return c.json({ ok: true });
+    const status = { forbidden: 403, not_found: 404, invalid_target: 409 }[result.error];
+    return c.json({ error: result.error }, status as 403 | 404 | 409);
+  });
+
+  groups.delete('/:groupId', async (c) => {
+    const auth = c.get('auth');
+    if (!auth) return c.json({ error: 'unauthorized' }, 401);
+    const groupId = uuidSchema.safeParse(c.req.param('groupId'));
+    if (!groupId.success) return c.json({ error: 'invalid_request' }, 400);
+
+    const result = await deleteGroup(c.get('db'), groupId.data, auth.user.id, Date.now());
+    return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 403);
   });
 
   groups.post('/:groupId/members/:userId/reinstate', async (c) => {

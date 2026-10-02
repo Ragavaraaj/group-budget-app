@@ -53,4 +53,18 @@ export const createInviteResponseSchema = z.object({
 });
 export type CreateInviteResponse = z.infer<typeof createInviteResponseSchema>;
 
+/** One invite link that can still be used. The link itself is shown only once, when created. */
+export const openInviteSchema = z.object({
+  id: uuidSchema,
+  createdAt: z.number().int(),
+  expiresAt: z.number().int(),
+  usedCount: z.number().int().min(0),
+  maxUses: z.number().int().min(1),
+});
+export type OpenInvite = z.infer<typeof openInviteSchema>;
+export const listInvitesResponseSchema = z.object({ invites: z.array(openInviteSchema) });
+export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;
+
+export const transferOwnershipRequestSchema = z.object({ userId: uuidSchema });
+
 export const acceptInviteRequestSchema = z.object({ token: z.string().min(16).max(128) });
