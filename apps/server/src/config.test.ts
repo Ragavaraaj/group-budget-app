@@ -2,27 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from './config';
 
 describe('loadConfig', () => {
-  it('applies safe defaults (loopback host, development environment)', () => {
+  it('defaults to production so a deployed Worker is safe unless told otherwise', () => {
     expect(loadConfig({})).toEqual({
-      NODE_ENV: 'development',
-      HOST: '127.0.0.1',
-      PORT: 3000,
+      ENVIRONMENT: 'production',
       LOG_LEVEL: 'info',
-      DATABASE_PATH: './data/app.db',
       APP_VERSION: 'dev',
     });
   });
 
-  it('coerces PORT from a string', () => {
-    expect(loadConfig({ PORT: '8080' }).PORT).toBe(8080);
+  it('ignores bindings that are not configuration', () => {
+    const config = loadConfig({ DB: { prepare: () => {} }, ASSETS: {}, APP_VERSION: '1.2.3' });
+    expect(config.APP_VERSION).toBe('1.2.3');
+    expect(config).not.toHaveProperty('DB');
+  });
+
+  it('accepts explicit environments', () => {
+    expect(loadConfig({ ENVIRONMENT: 'development', LOG_LEVEL: 'debug' })).toMatchObject({
+      ENVIRONMENT: 'development',
+      LOG_LEVEL: 'debug',
+    });
   });
 
   it.each([
-    ['PORT', 'abc'],
-    ['PORT', '70000'],
-    ['NODE_ENV', 'staging'],
+    ['ENVIRONMENT', 'staging'],
     ['LOG_LEVEL', 'loud'],
-  ])('rejects %s=%s with a readable message', (key, value) => {
-    expect(() => loadConfig({ [key]: value })).toThrow(/Invalid environment configuration/);
+    ['APP_VERSION', ''],
+  ])('rejects %s=%j with a readable message', (key, value) => {
+    expect(() => loadConfig({ [key]: value })).toThrow(/Invalid Worker configuration/);
   });
 });

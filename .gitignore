@@ -8,6 +8,11 @@ test-results/
 *.local
 .DS_Store
 
+# Cloudflare: local simulated D1/state, local secrets, generated types (run `npm run cf-typegen`)
+.wrangler/
+.dev.vars
+worker-configuration.d.ts
+
 # local environment and data
 .env
 .env.*

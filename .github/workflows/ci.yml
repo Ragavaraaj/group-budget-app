@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'claude/**']
+    branches: [main, 'claude/**', 'migrate-cloudflare']
   pull_request:
 
 concurrency:
@@ -12,9 +12,12 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  WRANGLER_SEND_METRICS: 'false'
+
 jobs:
   check:
-    name: Lint, types, unit tests, build
+    name: Lint, types, unit tests (workerd), build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,13 +30,16 @@ jobs:
       - run: npm run lint # Biome: lint + format + import order
       - run: npm run typecheck
       - run: npm test
+      # Builds the web app, then bundles the Worker with a dry-run deploy (catches config and
+      # bundling problems without touching Cloudflare).
       - run: npm run build
-      # Production dependencies only: the known esbuild advisories are in build-time dev tools
-      # (tsup, drizzle-kit) that never ship, and the suggested "fix" is a breaking downgrade.
+      # Production dependencies only. The remaining advisories are in dev tooling that never ships:
+      # the miniflare bundled inside the Workers test pool, and esbuild inside drizzle-kit. npm's
+      # suggested "fix" is a breaking downgrade of both, so revisit when they release updates.
       - run: npm audit --omit=dev --audit-level=high
 
   e2e:
-    name: End-to-end (Chromium)
+    name: End-to-end (Chromium, wrangler dev)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "group-budget",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "observability": { "enabled": true },
+
+  // One Worker serves both the API and the built web app, so everything is same-origin
+  // (no CORS; session cookies just work). Only /api/* runs Worker code; every other path is
+  // answered straight from the static assets, with unknown paths falling back to index.html.
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Create the real database with `wrangler d1 create group-budget --location apac` and put its
+  // id here. Local development and the tests use a simulated D1 and ignore this value.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "group-budget",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle"
+    }
+  ],
+
+  // Non-secret configuration. Anything unset here defaults to the safe production value;
+  // local development opts in to development behaviour through .dev.vars (see .dev.vars.example).
+  "vars": { "APP_VERSION": "dev" }
+}
