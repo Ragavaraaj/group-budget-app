@@ -1,6 +1,6 @@
 # Group Budget App — Architecture & Plan
 
-Status: **draft v1** · Scope: architecture and roadmap only, no code yet.
+Status: **draft v2** · Scope: architecture and roadmap only, no code yet.
 
 ## 1. Goals and constraints
 
@@ -11,10 +11,14 @@ Status: **draft v1** · Scope: architecture and roadmap only, no code yet.
 | **Client** | PWA, plain React (no Next.js), installable, **usable offline** (entering an expense at the till must never fail). |
 | **Server rendering** | Custom React Server Components (RSC). Explicitly *lower priority*, so the architecture must work without it and let it slot in later. |
 
-Assumptions (flip any of these and the plan changes — see §13):
+Confirmed decisions:
+- **Both personal and shared-group expenses.** They are the same thing: every user gets a private group of one. One code path, no special cases.
+- **INR only.** No multi-currency (no currency columns, no FX rates). Amounts are stored as integer **paise**.
+- **No receipt photos.** No attachment storage, upload limits or file backups anywhere in the plan.
+- **Domain: will be bought** (not yet). It is needed at deploy time, not for local development — see §9.
+
+Working assumption (flip it and the plan changes — see §13):
 - Users: you, family and friends — dozens, not thousands.
-- "Personal" and "group" are the same thing: every user gets a private group of one. One code path, no special cases.
-- Single currency per group at first; multi-currency is a later milestone.
 
 ## 2. Decisions at a glance
 
@@ -23,13 +27,14 @@ Assumptions (flip any of these and the plan changes — see §13):
 | Hosting | 1 small VPS (1 vCPU / 1–2 GB RAM), Caddy in front | Cheapest viable; Caddy gives free auto-HTTPS | Any provider; nothing is provider-specific |
 | Server | Node (current LTS) + **Hono** + TypeScript | Tiny, fast, runs the same on any host | Fastify |
 | Database | **SQLite** (WAL) via `better-sqlite3`, **Drizzle** for schema and migrations | Zero extra process or RAM, trivially backed up, plenty for this scale | Postgres via Drizzle, kept behind `server/data/*` |
-| Backups | **Litestream** → Backblaze B2 / Cloudflare R2 free tier | Continuous, point-in-time restore, ~$0 | Nightly `sqlite3 .backup` + restic |
+| Backups | **Litestream** → Backblaze B2 / Cloudflare R2 free tier | Continuous, point-in-time restore, ~$0 | Nightly `sqlite3 .backup` copied off-box with rclone |
 | Client | React 19 + TypeScript + **Vite**, React Router, Tailwind, Radix primitives | Standard, small, fast to build | — |
 | Local data | **Dexie** (IndexedDB) with live queries | Offline source of truth for the UI; mature | SQLite-WASM + OPFS |
 | Sync | Custom **outbox + cursor pull**, SSE nudge | Expense data is append-mostly; no CRDT/sync-engine dependency needed | Replicache / PowerSync / Zero if it gets hairy |
 | Auth | **Passkeys** (WebAuthn) + password fallback, cookie sessions | No email/SMS provider cost; cookie auth also works for RSC | Magic links via free SMTP tier later |
 | RSC | **`@vitejs/plugin-rsc`** on the existing Vite setup, read-only, no Server Functions | Framework-agnostic, you own the entry points | `react-server-dom-parcel` / `-webpack` |
 | Validation | **zod** schemas in `shared/`, used on client and server | One definition of every payload | — |
+| Currency | **INR only**, integer paise, `Intl.NumberFormat('en-IN')` (lakh/crore grouping) | Removes FX, per-row currency and mixed-currency reports entirely | Add a `currency` column (default `'INR'`) via a normal migration if ever needed |
 | CI/CD | GitHub Actions → container image on GHCR → SSH deploy | Free, simple | rsync + systemd |
 
 ## 3. The central design tension: offline PWA vs. RSC
@@ -60,7 +65,6 @@ RSC renders on the server. An offline PWA, by definition, cannot reach the serve
                         │      server/data/*  (single data layer)    │
                         │            │                               │
                         │       SQLite (WAL) ── Litestream ──► B2/R2 │
-                        │       /data/attachments ── restic ──► B2   │
                         └────────────────────────────────────────────┘
 ```
 
@@ -83,11 +87,11 @@ users            id, display_name, created_at
 credentials      id, user_id, webauthn_public_key, counter, transports      -- passkeys
 password_creds   user_id, argon2id_hash                                      -- fallback
 sessions         id_hash, user_id, expires_at, user_agent
-groups           id, name, currency, is_personal, created_by
+groups           id, name, is_personal, created_by
 memberships      group_id, user_id, role (owner|member), joined_at
 invites          id_hash, group_id, expires_at, used_by            -- signed, single-use
 categories       id, group_id, name, icon, color, archived
-expenses         id, group_id, occurred_on, amount_minor, currency,
+expenses         id, group_id, occurred_on (local date), amount_minor,
                  category_id, note, created_by,
                  version, updated_at, deleted_at, server_seq
 expense_payers   expense_id, user_id, amount_minor      -- who paid (can be several)
@@ -95,18 +99,17 @@ expense_shares   expense_id, user_id, amount_minor      -- who owes what
 settlements      id, group_id, from_user, to_user, amount_minor, occurred_on, ... (sync cols)
 budgets          id, group_id, category_id?, period, amount_minor
 recurring_rules  id, group_id, template, rrule, next_run_on
-attachments      id, expense_id, path, mime, size_bytes             -- phase 5
 processed_mutations  mutation_id, user_id, applied_at                -- idempotency
 audit_log        id, mutation_id, user_id, entity, entity_id, before, after, at  -- append-only
 ```
 
 Rules:
-- **Money is integer minor units** (cents/paise) plus an ISO-4217 currency. No floats anywhere. Display with `Intl.NumberFormat`.
+- **Money is integer paise** (`amount_minor` = paise; ₹1 = 100). No floats anywhere. The currency is a single constant in `shared/`, not a column. Display with `Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' })`.
+- **Dates**: `occurred_on` is a plain `YYYY-MM-DD` *local* date (the day the user means), never a UTC instant, so an expense entered at 00:30 IST never lands on the wrong day. `updated_at` and sync metadata are UTC.
 - **Splits**: equal / exact / percent / shares. Remainder cents are distributed with the largest-remainder method so `sum(shares) == total` always holds (property-tested).
 - **Balances are derived, never stored**: `net(user) = Σ paid − Σ owed ± settlements`. Cached/materialized only if profiling says so.
 - **Settle-up** uses greedy debt simplification (min-cash-flow) to minimise the number of transfers.
 - Every synced table has `server_seq` (monotonic, assigned by the server on each write), `updated_at`, `deleted_at` (tombstone, never hard-delete synced rows).
-- Multi-currency (later): store the original amount + currency and the FX rate captured at entry time; never recompute history from today's rate.
 
 ## 5. Sync protocol
 
@@ -178,7 +181,6 @@ Why custom: expenses are append-mostly, edits are rare and rarely concurrent, so
 Internet ─► Caddy :443 (auto-TLS) ─► Node app :3000 ─► SQLite /data/app.db
                                           │
                               Litestream sidecar ──► B2/R2 bucket
-                              restic (nightly, attachments) ──► B2
 ```
 
 - **Process management**: Docker Compose (`app`, `caddy`, `litestream`) or three systemd units. Compose recommended — reproducible and one-command rollback by image tag.
@@ -187,7 +189,12 @@ Internet ─► Caddy :443 (auto-TLS) ─► Node app :3000 ─► SQLite /data/
 - **Observability**: pino JSON logs, `/healthz`, healthchecks.io (free) pinged by cron and by Litestream health; UptimeRobot (free) on the public URL.
 - **Capacity sanity check**: Node ≈ 100–200 MB, Caddy ≈ 20–40 MB, Litestream ≈ 30 MB — fits 1 GB with headroom. SQLite single-writer is fine for this user count.
 
-**Cost** (approximate, verify current pricing)
+**Domain and region**
+- **When to buy the domain**: not before you start coding — `localhost` counts as a secure context, so service workers, PWA install and passkeys all work in local development. Buy it before the **first real deploy (M0 exit)**, and before anyone registers a real passkey: WebAuthn credentials are bound to the domain (and don't work on a bare IP), so changing the domain later means re-registering everyone.
+- **What to buy**: any mainstream TLD (`.com`, `.in`, `.app`, …). Compare the *renewal* price, not just the first-year price. A short, neutral name is better than a clever one, since it is permanent.
+- **VPS region**: pick one near you (check whether your provider offers Mumbai, Bangalore or Singapore). The app is offline-first, so latency matters far less than for a normal web app, but sync and RSC reports still feel better when close.
+
+**Cost** (approximate, verify current pricing; the VPS is billed in USD by most overseas providers, so check the INR amount at checkout)
 
 | Item | Cost |
 |---|---|
@@ -231,20 +238,27 @@ Each milestone ends in something you can use on your phone.
 
 | # | Milestone | Scope | Exit criteria |
 |---|---|---|---|
-| **M0** | Foundations | Vite+React+TS scaffold, lint/test/CI, installable PWA shell, VPS + Caddy + domain, Litestream backups | App installable at your domain; **a backup restore has been performed successfully** |
+| **M0** | Foundations | Vite+React+TS scaffold, lint/test/CI, installable PWA shell (all developed on `localhost`); then **buy domain**, VPS + Caddy, Litestream backups | App installable at your domain; **a backup restore has been performed successfully** |
 | **M1** | Personal ledger, offline-first | Auth (passkey + password), Dexie schema, expense CRUD, categories, outbox + pull sync, SSE | Add expenses in airplane mode on phone; they appear on a second device after reconnect |
 | **M2** | Groups | Invites, memberships, split types, balances, settle-up, activity feed | Two people run a trip's expenses and the balances match a hand calculation |
-| **M3** | Insights | Client-side monthly/category/trend reports (pure SVG), budgets + alerts, search/filter, CSV import/export, recurring expenses | Month-end review is possible without leaving the app |
+| **M3** | Insights | Client-side monthly/category/trend reports (pure SVG), budgets + alerts, search/filter, CSV import/export, recurring expenses; configurable month start (calendar month or salary-cycle day) and a yearly view by Indian financial year (Apr–Mar) | Month-end review is possible without leaving the app |
 | **M4** | **RSC** | Spike (§7) → server-rendered reports and history archive; measure payload sizes and JS shipped | Reports render from RSC online and degrade to client-side offline |
-| **M5** | Extras (pick as needed) | Receipt photos (client-side compression, stored on VPS disk), multi-currency with stored FX rates, Web Push, bank-CSV import presets | — |
+| **M5** | Extras (pick as needed) | Web Push, bank-statement CSV import presets, a UPI deep link (`upi://pay?…`) on settle-up so you can pay a member from your UPI app (verify it works across apps before committing) | — |
 
-## 13. Open questions
+Out of scope for now (decided): multi-currency/FX, receipt photos or any file attachments.
 
-1. **Personal only, or shared groups too?** The repo name suggests groups; I assumed both. Personal-only would drop M2's balance/settle-up work (roughly a third of the domain logic).
-2. **Multi-currency early?** It touches the data model and every report. If travel is a main use case, pull it into M2.
-3. **Domain**: do you own one, or will you register one? It must be permanent (passkeys are bound to it).
-4. **Receipt photos in v1?** Adds storage, backup and upload-size concerns; I put them in M5.
-5. **RSC end state**: is "reports via RSC" enough, or do you eventually want the whole app server-rendered (which conflicts with offline-first)?
+## 13. Decisions and open questions
+
+**Decided**
+- Both personal and group expenses (personal = a group of one).
+- INR only; no multi-currency.
+- No receipt photos or attachments.
+- Domain will be bought, before the first real deploy (§9).
+
+**Still open** (none blocks M0 except the first)
+1. **Domain name and VPS provider/region** — needed at the end of M0, not the start.
+2. **RSC end state** — current assumption: RSC is used for reports and the history archive only. If you eventually want the whole app server-rendered, that conflicts with offline-first and needs a rethink; flag it before M4.
+3. **User count** — the plan assumes dozens of users. If it might grow to thousands, revisit SQLite vs Postgres before M2 (the `server/data/*` boundary keeps that swap cheap).
 
 ## 14. Risks
 
