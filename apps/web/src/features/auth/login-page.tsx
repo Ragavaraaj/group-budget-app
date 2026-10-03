@@ -1,8 +1,9 @@
-import { Loader2, LogIn, ReceiptText, WifiOff } from 'lucide-react';
+import { Loader2, LogIn, WifiOff } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useLocation, useSearchParams } from 'react-router';
 import { cancelAttempt, googleStartUrl, hasPendingAttempt, isStandalone } from '@/auth/attempt';
 import { useAuth } from '@/auth/auth-context';
+import { LogoMark } from '@/components/logo-mark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -134,11 +135,7 @@ export function LoginPage() {
     <div className="mx-auto flex min-h-dvh max-w-sm flex-col px-5 pt-safe pb-8">
       <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
         <div className="bg-hero grid size-20 place-items-center rounded-[1.75rem] shadow-lg shadow-black/20">
-          <ReceiptText
-            className="text-hero-foreground size-10"
-            strokeWidth={1.8}
-            aria-hidden="true"
-          />
+          <LogoMark className="w-16" />
         </div>
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Group Budget</h1>
