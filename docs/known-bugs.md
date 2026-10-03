@@ -41,13 +41,13 @@ test on purpose (a test would pin the rounding, not a requirement).
 
 ### BUG-001: A CSV file with more than 500 spending rows cannot be imported in full
 
-**Fixed:** Rows already recorded no longer count towards the 500-row limit (`import-page.tsx`), so choosing the file again shows the rest. The test no longer carries `test.fail`.
+**Fixed:** The page shows a window of the file with at most 500 _ticked_ rows, and when the file has more than 500 rows it starts after the already-recorded rows at the top (`importWindow` in `bank.ts`), so choosing the file again lands on the rest. A recorded expense now accounts for one row only (`findDuplicates`). The test no longer carries `test.fail`.
 
 - **Area:** Import from CSV (`apps/web/src/features/import/import-page.tsx`)
 - **Severity:** Medium. No data is lost, but the page promises something it cannot do, and the
   rows past 500 can only be added by hand or by editing the file.
 - **Test:** `e2e/import-limits.spec.ts`, "shows the first 500, and importing them lets the rest be
-  imported by choosing the file again" (marked `test.fail`).
+  imported by choosing the file again" (was marked `test.fail` until the fix).
 
 **What happens.** A statement with 501 or more spending rows shows the first 500 and a warning:
 
@@ -95,7 +95,7 @@ the rest), and word the warning to match. The unit tests for `findDuplicates` do
 - **Area:** Settings, Sync card (`apps/web/src/features/settings/settings-page.tsx`)
 - **Severity:** Low. Wording only, on an error path.
 - **Test:** `e2e/sync-and-export.spec.ts`, "the explanation reads properly: "Saving an expense""
-  (marked `test.fail`).
+  (was marked `test.fail` until the fix).
 
 **What happens.** When the server refuses a change, Settings lists it under "Changes the server
 didn’t accept". For a refused expense the line reads:
@@ -122,7 +122,7 @@ category", "a payment", "a budget", "a recurring expense"), used for all three v
 - **Severity:** Medium. Every deployed build reports the commit it was built from as its version
   (CI passes `--var APP_VERSION:${{ github.sha }}`), so everyone on a narrow phone sees it.
 - **Test:** `e2e/layout.spec.ts`, "a full commit id is cut short with an ellipsis, inside its card,
-  on any phone" (marked `test.fail`).
+  on any phone" (was marked `test.fail` until the fix).
 
 **What happens.** The version is a 40-character commit id such as
 `456a78104d18887ca25906b94e71cdf79d103eee`: one word with nowhere to wrap. It sits in a row next to
@@ -156,8 +156,8 @@ the first 7 characters and put the whole id in a `title`.
 - **Area:** layout, several screens
 - **Severity:** Low. It needs a name with nothing to wrap at (a pasted link, a long run of
   characters). Group names go up to 60 characters, category names 40 and people's names 100.
-- **Tests:** `e2e/layout.spec.ts`, four tests under "long names on a narrow phone" (each marked
-  `test.fail`). A fifth, "a long name, note, category and email stay inside the screen on the main
+- **Tests:** `e2e/layout.spec.ts`, four tests under "long names on a narrow phone" (each was marked
+  `test.fail` until the fix). A fifth, "a long name, note, category and email stay inside the screen on the main
   screens", passes and guards the screens that are fine.
 
 **What happens.** Measured on a 360 px phone, with a 60-character group name or a 40-character
@@ -188,7 +188,7 @@ their box.
 - **Area:** design system, three places
 - **Severity:** Low. They work, but look and behave unlike the rest of the app (the browser's
   picker, its own styling in dark mode and on iOS and Android).
-- **Tests:** `e2e/design-system.spec.ts`, two tests (each marked `test.fail`). A third, "everywhere
+- **Tests:** `e2e/design-system.spec.ts`, two tests (each was marked `test.fail` until the fix). A third, "everywhere
   else, including every screen that has a group chooser", passes: no other screen has a native
   select, and it keeps it that way.
 

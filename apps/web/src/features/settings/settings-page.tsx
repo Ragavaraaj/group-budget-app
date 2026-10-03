@@ -44,6 +44,7 @@ import type { Rejection } from '@/db/types';
 import { ServerStatusCard } from '@/features/status/server-status-card';
 import { download, type ExportBundle, expensesToCsv, exportToJson } from '@/lib/export';
 import { initials } from '@/lib/format';
+import { tryLocal } from '@/lib/local-errors';
 import { InstallCard } from './install-card';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -190,7 +191,11 @@ function SyncCard() {
                 </li>
               ))}
             </ul>
-            <Button variant="ghost" size="sm" onClick={() => void setMeta(db, 'rejections', [])}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void tryLocal(() => setMeta(db, 'rejections', []))}
+            >
               Dismiss
             </Button>
           </div>
@@ -213,7 +218,9 @@ function ReportingCard() {
         <Label htmlFor="month-start">A month starts on day</Label>
         <Select
           value={String(day)}
-          onValueChange={(value) => void setMeta(db, MONTH_START_KEY, Number(value))}
+          onValueChange={(value) =>
+            void tryLocal(() => setMeta(db, MONTH_START_KEY, Number(value)))
+          }
         >
           <SelectTrigger id="month-start" className="w-full">
             <SelectValue />

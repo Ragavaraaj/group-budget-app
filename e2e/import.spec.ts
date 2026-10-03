@@ -36,7 +36,7 @@ test.describe('CSV import', () => {
       buffer: Buffer.from(statement()),
     });
 
-    await expect(page.getByText('This looks like a HDFC Bank statement.')).toBeVisible();
+    await expect(page.getByText('This looks like a statement from HDFC Bank.')).toBeVisible();
     // Three payments out; the salary is left out; two lines can't be read.
     await expect(page.getByTestId('import-summary')).toContainText('3 expenses found');
     await expect(page.getByTestId('import-summary')).toContainText('1 money in, left out');
@@ -47,10 +47,8 @@ test.describe('CSV import', () => {
     await expect(rows.first()).toContainText('₹450');
 
     // Words in the narration pick a category; it can still be changed.
-    await expect(page.getByLabel('Category for UPI-SWIGGY-order 1')).not.toContainText(
-      'No category',
-    );
-    await expect(page.getByLabel('Category for Chai wala')).toContainText('No category');
+    await expect(page.getByLabel('Category for UPI-SWIGGY-order 1')).toHaveText('Food & dining');
+    await expect(page.getByLabel('Category for Chai wala')).toHaveText('No category');
 
     // Leave one out, then import.
     await page.getByLabel(/Import Chai wala/).uncheck();
@@ -136,9 +134,9 @@ test.describe('CSV import', () => {
     await expect(page.getByTestId('import-summary')).toContainText('2 expenses found');
     await expect(page.getByTestId('import-rows').getByRole('listitem')).toHaveCount(2);
     await expect(page.getByLabel(/Import Bravo shop/)).not.toBeChecked();
-    await expect(page.getByLabel('Category for Bravo shop')).not.toContainText('No category');
+    await expect(page.getByLabel('Category for Bravo shop')).toHaveText('Health');
     await expect(page.getByLabel(/Import Charlie shop/)).toBeChecked();
-    await expect(page.getByLabel('Category for Charlie shop')).toContainText('No category');
+    await expect(page.getByLabel('Category for Charlie shop')).toHaveText('No category');
     await expect(page.getByRole('button', { name: /^Import 1 expense / })).toBeEnabled();
   });
 

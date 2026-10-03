@@ -31,6 +31,7 @@ import {
   guessSpendingSign,
   type ImportRow,
   type InterpretOptions,
+  importWindow,
   interpretRows,
   type Mapping,
   suggestCategory,
@@ -74,7 +75,9 @@ export function ImportPage() {
   // line does not, so their choices stay with the same transaction.
   const [picked, setPicked] = useState<Record<number, boolean>>({});
   const [chosen, setChosen] = useState<Record<number, string | null>>({});
-  const [importing, setImporting] = useState<number | null>(null);
+  // The total is taken when the import starts: each row saved becomes "already recorded", so the
+  // number of ticked rows falls as the import goes.
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const header = loaded ? (loaded.rows[loaded.headerAt] ?? []) : [];
   const body = useMemo(() => (loaded ? loaded.rows.slice(loaded.headerAt + 1) : []), [loaded]);
@@ -94,39 +97,32 @@ export function ImportPage() {
     };
   }, [loaded, mapping, body, dateOrder, spendingIs]);
 
-  // Rows already recorded do not count towards the limit, so choosing a long file again after
-  // importing the first part reaches the rest: the page shows every row up to the one that would
-  // be the (MAX_IMPORT_ROWS + 1)th new expense.
-  const allRows = result?.rows;
-  const recordedInFile = useMemo(
-    () => findDuplicates(allRows ?? [], existing ?? []),
-    [allRows, existing],
+  // A long file is shown a window at a time (see `importWindow`): at most MAX_IMPORT_ROWS ticked
+  // rows, starting after the rows at the top that are already recorded.
+  const allRows = useMemo(() => result?.rows ?? [], [result]);
+  const recorded = useMemo(() => findDuplicates(allRows, existing ?? []), [allRows, existing]);
+  const { start, end } = useMemo(
+    () =>
+      importWindow(
+        allRows,
+        recorded,
+        (row, index) => picked[row.line] ?? !recorded.has(index),
+        MAX_IMPORT_ROWS,
+      ),
+    [allRows, recorded, picked],
   );
-  const rows = useMemo(() => {
-    const all = allRows ?? [];
-    let fresh = 0;
-    for (let i = 0; i < all.length; i++) {
-      if (recordedInFile.has(i)) continue;
-      if (fresh === MAX_IMPORT_ROWS) return all.slice(0, i);
-      fresh++;
-    }
-    return all;
-  }, [allRows, recordedInFile]);
-  // `rows` is a prefix of the file's rows, so the positions are the same.
-  const duplicates = useMemo(
-    () => new Set([...recordedInFile].filter((i) => i < rows.length)),
-    [recordedInFile, rows],
-  );
-  const newInFile = (allRows?.length ?? 0) - recordedInFile.size;
   const bank = loaded ? detectBank(header) : null;
 
   if (!categories || !existing) return <Skeleton className="h-40" />;
 
-  const isIncluded = (row: ImportRow, index: number) => picked[row.line] ?? !duplicates.has(index);
+  // `index` is a position in the whole file, so a row keeps its number as the window moves.
+  const isIncluded = (row: ImportRow, index: number) => picked[row.line] ?? !recorded.has(index);
   const categoryOf = (row: ImportRow): string | null =>
     row.line in chosen ? (chosen[row.line] ?? null) : suggestCategory(row.note, categories);
 
-  const selected = rows.filter(isIncluded);
+  const shown = allRows.slice(start, end);
+  const selected = shown.filter((row, i) => isIncluded(row, start + i));
+  const recordedShown = [...recorded].filter((i) => i >= start && i < end).length;
   const totalMinor = selected.reduce((sum, row) => sum + row.amountMinor, 0);
 
   const load = async (file: File) => {
@@ -152,7 +148,8 @@ export function ImportPage() {
   };
 
   const run = async () => {
-    setImporting(0);
+    const total = selected.length;
+    setProgress({ done: 0, total });
     let done = 0;
     for (const row of selected) {
       const saved = await tryLocal(() =>
@@ -169,14 +166,14 @@ export function ImportPage() {
         }),
       );
       if (!saved) {
-        setImporting(null);
-        toast.error(`Stopped after ${done} of ${selected.length}. What was imported is kept.`);
+        setProgress(null);
+        toast.error(`Stopped after ${done} of ${total}. What was imported is kept.`);
         return;
       }
       done++;
-      setImporting(done);
+      setProgress({ done, total });
     }
-    setImporting(null);
+    setProgress(null);
     toast.success(`Imported ${done} expense${done === 1 ? '' : 's'}`);
     navigate('/', { replace: true });
   };
@@ -239,7 +236,7 @@ export function ImportPage() {
             <CardContent className="space-y-3">
               <p className="text-muted-foreground text-sm">
                 {bank
-                  ? `This looks like a ${bank} statement.`
+                  ? `This looks like a statement from ${bank}.`
                   : 'Couldn’t tell which bank this is, so check that each column is right.'}
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -318,38 +315,41 @@ export function ImportPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground text-sm" data-testid="import-summary">
-                {rows.length} expense{rows.length === 1 ? '' : 's'} found
+                {shown.length} expense{shown.length === 1 ? '' : 's'} found
                 {result.credits > 0 ? ` · ${result.credits} money in, left out` : ''}
-                {duplicates.size > 0 ? ` · ${duplicates.size} look already recorded, unticked` : ''}
+                {recordedShown > 0 ? ` · ${recordedShown} look already recorded, unticked` : ''}
+                {start > 0
+                  ? ` · ${start} at the top of the file look already recorded, left out`
+                  : ''}
                 {result.unreadable > 0
                   ? ` · ${result.unreadable} line${result.unreadable === 1 ? '' : 's'} skipped`
                   : ''}
               </p>
-              {newInFile > MAX_IMPORT_ROWS ? (
+              {end < allRows.length ? (
                 <p role="alert" className="text-sm text-amber-600 dark:text-amber-400">
-                  This file has {allRows?.length ?? 0} expenses
-                  {recordedInFile.size > 0 ? `, ${newInFile} not yet recorded` : ''}. The first{' '}
-                  {MAX_IMPORT_ROWS} {recordedInFile.size > 0 ? 'of those ' : ''}are shown; import
-                  them, then choose the file again for the rest (the ones you have imported will be
-                  unticked).
+                  This file has {allRows.length} expenses. The first {MAX_IMPORT_ROWS}
+                  {start > 0 ? ' after the ones already recorded' : ''} are shown; import them, then
+                  choose the file again for the rest (the ones you have imported will be unticked).
                 </p>
               ) : null}
 
-              {rows.length === 0 ? (
+              {shown.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
-                  No spending found. If the columns above look wrong, change them.
+                  {allRows.length === 0
+                    ? 'No spending found. If the columns above look wrong, change them.'
+                    : 'Everything in this file looks already recorded.'}
                 </p>
-              ) : importing !== null ? (
+              ) : progress !== null ? (
                 // Not drawn while saving: the progress count changes once per row, and redrawing
                 // hundreds of rows each time would make a long import crawl.
                 <p className="text-muted-foreground text-sm">Saving…</p>
               ) : (
                 <ul className="divide-y rounded-lg border" data-testid="import-rows">
-                  {rows.map((row, index) => (
+                  {shown.map((row, i) => (
                     <li key={row.line} className="flex items-start gap-3 p-3">
                       <Checkbox
                         className="mt-1"
-                        checked={isIncluded(row, index)}
+                        checked={isIncluded(row, start + i)}
                         aria-label={`Import ${row.note || 'expense'} on ${formatDay(row.date)}`}
                         onCheckedChange={(checked) =>
                           setPicked((p) => ({ ...p, [row.line]: checked === true }))
@@ -364,7 +364,7 @@ export function ImportPage() {
                         </p>
                         <p className="text-muted-foreground flex justify-between gap-3 text-xs">
                           <span>{formatDay(row.date)}</span>
-                          {duplicates.has(index) ? <span>Looks already recorded</span> : null}
+                          {recorded.has(start + i) ? <span>Looks already recorded</span> : null}
                         </p>
                         <Select
                           value={categoryOf(row) ?? NO_CATEGORY}
@@ -402,11 +402,11 @@ export function ImportPage() {
           <Button
             size="lg"
             className="w-full"
-            disabled={selected.length === 0 || importing !== null}
+            disabled={selected.length === 0 || progress !== null}
             onClick={() => void run()}
           >
-            {importing !== null
-              ? `Importing… ${importing} of ${selected.length}`
+            {progress !== null
+              ? `Importing… ${progress.done} of ${progress.total}`
               : `Import ${selected.length} expense${selected.length === 1 ? '' : 's'} (${formatPaise(totalMinor)})`}
           </Button>
           <p className="text-muted-foreground text-center text-xs">

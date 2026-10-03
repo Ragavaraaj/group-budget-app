@@ -166,7 +166,7 @@ test.describe('CSV import: a long statement', () => {
     await expect(page.getByTestId('import-rows').getByRole('listitem')).toHaveCount(500);
     await page.getByRole('button', { name: /^Import 500 expenses/ }).click();
     await expect(page).toHaveURL(/\/$/, { timeout: 90_000 });
-    await expect(page.getByText('500 expenses')).toBeVisible();
+    await expect(page.getByText('500 expenses', { exact: true })).toBeVisible();
 
     // "...import them, then choose the file again for the rest (the ones you have imported will
     // be unticked)."
