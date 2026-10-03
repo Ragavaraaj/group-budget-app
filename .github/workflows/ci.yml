@@ -41,9 +41,10 @@ jobs:
       # Builds the web app, then bundles the Worker with a dry-run deploy (catches config and
       # bundling problems without touching Cloudflare).
       - run: npm run build
-      # Production dependencies only. The remaining advisories are in dev tooling that never ships:
-      # the miniflare bundled inside the Workers test pool, and esbuild inside drizzle-kit. npm's
-      # suggested "fix" is a breaking downgrade of both, so revisit when they release updates.
+      # Production dependencies only: dev tooling never ships. The dev-tooling advisories (undici
+      # and sharp inside miniflare, esbuild inside drizzle-kit) are fixed with the `overrides` in
+      # the root package.json, so a plain `npm audit` is clean too; drop an override once its
+      # parent depends on a fixed version itself.
       - run: npm audit --omit=dev --audit-level=high
 
   e2e:
