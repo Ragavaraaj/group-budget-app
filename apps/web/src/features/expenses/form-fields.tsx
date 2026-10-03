@@ -51,7 +51,7 @@ export function CategoryChips({
   onChange: (id: string | null) => void;
 }) {
   return (
-    <fieldset className="space-y-2">
+    <fieldset className="min-w-0 space-y-2">
       <legend className="text-sm font-medium">Category</legend>
       <div className="flex flex-wrap gap-2">
         {categories.map((category) => (
@@ -61,7 +61,7 @@ export function CategoryChips({
             aria-pressed={value === category.id}
             onClick={() => onChange(value === category.id ? null : category.id)}
             className={cn(
-              'flex items-center gap-2 rounded-full border py-1 pr-3 pl-1 text-sm transition-colors',
+              'flex max-w-full items-center gap-2 rounded-full border py-1 pr-3 pl-1 text-sm transition-colors',
               value === category.id
                 ? 'border-primary bg-primary/10 font-medium'
                 : 'hover:bg-accent',
@@ -72,7 +72,7 @@ export function CategoryChips({
               color={category.color}
               className="size-7 [&_svg]:size-4"
             />
-            {category.name}
+            <span className="min-w-0 truncate">{category.name}</span>
           </button>
         ))}
       </div>

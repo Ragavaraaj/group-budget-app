@@ -1,3 +1,4 @@
+import type { EntityName } from '@budget/shared';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ChevronRight,
@@ -30,6 +31,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { getMeta, setMeta } from '@/db/database';
 import { MONTH_START_KEY, useMonthStartDay } from '@/db/hooks';
 import type { Rejection } from '@/db/types';
@@ -48,6 +56,16 @@ const REASONS: Record<string, string> = {
   not_found: 'it no longer exists',
   invalid: 'the server couldn’t read it',
   limit_reached: 'the group already has as many as it can hold',
+};
+
+// How each synced entity is named in a sentence, with its article. A settlement is a "payment"
+// everywhere else in the app.
+const ENTITY_PHRASES: Record<EntityName, string> = {
+  category: 'a category',
+  expense: 'an expense',
+  settlement: 'a payment',
+  budget: 'a budget',
+  recurring: 'a recurring expense',
 };
 
 export function SettingsPage() {
@@ -167,8 +185,8 @@ function SyncCard() {
             <ul className="text-muted-foreground list-disc space-y-1 pl-5">
               {rejections.map((r) => (
                 <li key={`${r.entityId}-${r.at}`}>
-                  {r.op === 'upsert' ? 'Saving' : r.op === 'delete' ? 'Deleting' : 'Restoring'} a{' '}
-                  {r.entity}: {REASONS[r.reason] ?? r.reason}.
+                  {r.op === 'upsert' ? 'Saving' : r.op === 'delete' ? 'Deleting' : 'Restoring'}{' '}
+                  {ENTITY_PHRASES[r.entity] ?? `a ${r.entity}`}: {REASONS[r.reason] ?? r.reason}.
                 </li>
               ))}
             </ul>
@@ -193,18 +211,21 @@ function ReportingCard() {
       </CardHeader>
       <CardContent className="space-y-2">
         <Label htmlFor="month-start">A month starts on day</Label>
-        <select
-          id="month-start"
-          className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-11 w-full rounded-xl border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] md:text-sm"
-          value={day}
-          onChange={(e) => void setMeta(db, MONTH_START_KEY, Number(e.target.value))}
+        <Select
+          value={String(day)}
+          onValueChange={(value) => void setMeta(db, MONTH_START_KEY, Number(value))}
         >
-          {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
-            <option key={d} value={d}>
-              {d === 1 ? '1 (calendar months)' : String(d)}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="month-start" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+              <SelectItem key={d} value={String(d)}>
+                {d === 1 ? '1 (calendar months)' : String(d)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <p className="text-muted-foreground text-xs">
           If your salary arrives on the 25th, pick 25 and a “month” runs from the 25th to the 24th.
           This applies on this device, to your own views.

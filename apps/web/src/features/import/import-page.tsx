@@ -6,7 +6,15 @@ import { toast } from 'sonner';
 import { useDb, useMe } from '@/auth/sync-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useCategories, useExpensesOfGroups } from '@/db/hooks';
@@ -30,6 +38,8 @@ import {
 import { parseCsv } from './csv';
 
 const MAX_FILE_BYTES = 2_000_000;
+/** The Select cannot hold an empty value, so "no category" is this. */
+const NO_CATEGORY = 'none';
 
 const FIELD_LABELS: Record<Field, string> = {
   date: 'Date',
@@ -84,8 +94,30 @@ export function ImportPage() {
     };
   }, [loaded, mapping, body, dateOrder, spendingIs]);
 
-  const rows = useMemo(() => result?.rows.slice(0, MAX_IMPORT_ROWS) ?? [], [result]);
-  const duplicates = useMemo(() => findDuplicates(rows, existing ?? []), [rows, existing]);
+  // Rows already recorded do not count towards the limit, so choosing a long file again after
+  // importing the first part reaches the rest: the page shows every row up to the one that would
+  // be the (MAX_IMPORT_ROWS + 1)th new expense.
+  const allRows = result?.rows;
+  const recordedInFile = useMemo(
+    () => findDuplicates(allRows ?? [], existing ?? []),
+    [allRows, existing],
+  );
+  const rows = useMemo(() => {
+    const all = allRows ?? [];
+    let fresh = 0;
+    for (let i = 0; i < all.length; i++) {
+      if (recordedInFile.has(i)) continue;
+      if (fresh === MAX_IMPORT_ROWS) return all.slice(0, i);
+      fresh++;
+    }
+    return all;
+  }, [allRows, recordedInFile]);
+  // `rows` is a prefix of the file's rows, so the positions are the same.
+  const duplicates = useMemo(
+    () => new Set([...recordedInFile].filter((i) => i < rows.length)),
+    [recordedInFile, rows],
+  );
+  const newInFile = (allRows?.length ?? 0) - recordedInFile.size;
   const bank = loaded ? detectBank(header) : null;
 
   if (!categories || !existing) return <Skeleton className="h-40" />;
@@ -216,21 +248,24 @@ export function ImportPage() {
                     <Label htmlFor={`map-${field}`} className="text-xs">
                       {FIELD_LABELS[field]}
                     </Label>
-                    <select
-                      id={`map-${field}`}
-                      className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                      value={mapping[field]}
-                      onChange={(e) => setField(field, Number(e.target.value))}
+                    <Select
+                      value={String(mapping[field])}
+                      onValueChange={(value) => setField(field, Number(value))}
                     >
-                      <option value={-1}>Not in this file</option>
-                      {header.map((name, i) => (
-                        // The header's position is its identity; two columns can share a name.
-                        // biome-ignore lint/suspicious/noArrayIndexKey: see above
-                        <option key={i} value={i}>
-                          {name || `Column ${i + 1}`}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id={`map-${field}`} size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="-1">Not in this file</SelectItem>
+                        {header.map((name, i) => (
+                          // The header's position is its identity; two columns can share a name.
+                          // biome-ignore lint/suspicious/noArrayIndexKey: see above
+                          <SelectItem key={i} value={String(i)}>
+                            {name || `Column ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ))}
               </div>
@@ -290,11 +325,13 @@ export function ImportPage() {
                   ? ` · ${result.unreadable} line${result.unreadable === 1 ? '' : 's'} skipped`
                   : ''}
               </p>
-              {result.rows.length > MAX_IMPORT_ROWS ? (
+              {newInFile > MAX_IMPORT_ROWS ? (
                 <p role="alert" className="text-sm text-amber-600 dark:text-amber-400">
-                  This file has {result.rows.length} expenses. The first {MAX_IMPORT_ROWS} are
-                  shown; import them, then choose the file again for the rest (the ones you have
-                  imported will be unticked).
+                  This file has {allRows?.length ?? 0} expenses
+                  {recordedInFile.size > 0 ? `, ${newInFile} not yet recorded` : ''}. The first{' '}
+                  {MAX_IMPORT_ROWS} {recordedInFile.size > 0 ? 'of those ' : ''}are shown; import
+                  them, then choose the file again for the rest (the ones you have imported will be
+                  unticked).
                 </p>
               ) : null}
 
@@ -302,16 +339,21 @@ export function ImportPage() {
                 <p className="text-muted-foreground text-sm">
                   No spending found. If the columns above look wrong, change them.
                 </p>
+              ) : importing !== null ? (
+                // Not drawn while saving: the progress count changes once per row, and redrawing
+                // hundreds of rows each time would make a long import crawl.
+                <p className="text-muted-foreground text-sm">Saving…</p>
               ) : (
                 <ul className="divide-y rounded-lg border" data-testid="import-rows">
                   {rows.map((row, index) => (
                     <li key={row.line} className="flex items-start gap-3 p-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 size-4"
+                      <Checkbox
+                        className="mt-1"
                         checked={isIncluded(row, index)}
                         aria-label={`Import ${row.note || 'expense'} on ${formatDay(row.date)}`}
-                        onChange={(e) => setPicked((p) => ({ ...p, [row.line]: e.target.checked }))}
+                        onCheckedChange={(checked) =>
+                          setPicked((p) => ({ ...p, [row.line]: checked === true }))
+                        }
                       />
                       <div className="min-w-0 flex-1 space-y-1">
                         <p className="flex justify-between gap-3 text-sm">
@@ -324,21 +366,31 @@ export function ImportPage() {
                           <span>{formatDay(row.date)}</span>
                           {duplicates.has(index) ? <span>Looks already recorded</span> : null}
                         </p>
-                        <select
-                          aria-label={`Category for ${row.note || 'expense'}`}
-                          className="border-input bg-background h-8 w-full rounded-md border px-2 text-xs"
-                          value={categoryOf(row) ?? ''}
-                          onChange={(e) =>
-                            setChosen((c) => ({ ...c, [row.line]: e.target.value || null }))
+                        <Select
+                          value={categoryOf(row) ?? NO_CATEGORY}
+                          onValueChange={(value) =>
+                            setChosen((c) => ({
+                              ...c,
+                              [row.line]: value === NO_CATEGORY ? null : value,
+                            }))
                           }
                         >
-                          <option value="">No category</option>
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger
+                            size="sm"
+                            className="w-full text-xs"
+                            aria-label={`Category for ${row.note || 'expense'}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_CATEGORY}>No category</SelectItem>
+                            {categories.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </li>
                   ))}

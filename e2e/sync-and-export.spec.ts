@@ -114,10 +114,7 @@ test.describe('when the server does not cooperate', () => {
     await expect(page.getByText('Changes the server didn’t accept')).toHaveCount(0);
   });
 
-  // BUG-002 (docs/known-bugs.md): the panel says "Saving a expense". When it is fixed this test
-  // passes and the `fail` below has to go.
   test('the explanation reads properly: "Saving an expense"', async ({ page }) => {
-    test.fail(true, 'BUG-002: the Settings panel says "Saving a expense"');
     await refuseEveryPush(page);
     await addExpenseOn(page, { amount: '10', note: 'Wording check' });
     await page.getByRole('link', { name: 'Settings' }).click();

@@ -154,9 +154,6 @@ test.describe('CSV import: a long statement', () => {
     page,
   }) => {
     test.setTimeout(120_000);
-    // BUG-001 (docs/known-bugs.md): the rows after the 500th are never offered. When this test
-    // starts to pass the bug is fixed: remove this line and move the entry to "Fixed".
-    test.fail(true, 'BUG-001: rows after the 500th cannot be imported');
     await page.goto('/login');
     await devSignIn(page, uniqueEmail('import-long'));
     await page.goto('/settings/import');
