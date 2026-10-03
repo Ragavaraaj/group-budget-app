@@ -20,6 +20,7 @@ Status: **draft v6** · Scope: architecture and roadmap, split into the document
 | [Security](security.md) | CSRF, authorization, rate limiting, headers, secrets, dependencies |
 | [Infrastructure](infrastructure.md) | Cloudflare deploy, backups, limits, domain, cost |
 | [Testing](testing.md) | Test layers, e2e, static checks, CI gates |
+| [Known bugs](known-bugs.md) | Bugs found by the tests that are not fixed yet, with steps and the test that shows each |
 | [Repository layout](repository-layout.md) | Folder structure, dependency rules, tooling decisions |
 | [Roadmap](roadmap.md) | Milestones M0–M4, status, decisions and open questions |
 | [Risks](risks.md) | Risk register and mitigations; parked React Server Components |

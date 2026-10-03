@@ -21,3 +21,6 @@ data/
 *.db
 *.db-shm
 *.db-wal
+
+# graphify: generated knowledge graph (rebuild with `graphify extract . --code-only`)
+graphify-out/

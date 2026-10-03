@@ -1,4 +1,14 @@
-import { type Browser, type BrowserContext, expect, type Page } from '@playwright/test';
+import {
+  type APIRequestContext,
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Page,
+  type PlaywrightWorkerArgs,
+} from '@playwright/test';
+
+/** Where `wrangler dev` serves the built app and the API (see playwright.config.ts). */
+export const ORIGIN = 'http://localhost:8787';
 
 let counter = 0;
 
@@ -67,6 +77,15 @@ export async function pickDate(page: Page, label: string, iso: string): Promise<
   await page.getByRole('combobox', { name: 'Choose the Year' }).selectOption(String(year));
   await page.getByRole('combobox', { name: 'Choose the Month' }).selectOption(String(month - 1));
   await page.locator(`[data-day="${iso}"] button`).click();
+  // The calendar closes with a short animation; a second picker must not meet the first one.
+  await expect(page.getByRole('combobox', { name: 'Choose the Year' })).toHaveCount(0);
+}
+
+/** Empties an optional date picker (the one named by `label`) with its "Clear date" button. */
+export async function clearDate(page: Page, label: string): Promise<void> {
+  await page.getByLabel(label, { exact: true }).click();
+  await page.getByRole('button', { name: 'Clear date' }).click();
+  await expect(page.getByRole('combobox', { name: 'Choose the Year' })).toHaveCount(0);
 }
 
 /** Adds a personal expense through the form, on a given day. */
@@ -102,4 +121,176 @@ export async function createGroup(page: Page, name: string): Promise<void> {
   await page.getByLabel('Group name').fill(name);
   await page.getByRole('button', { name: 'Create group' }).click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
+}
+
+/** An id that no group, expense or invite has: for visiting or calling things that don't exist. */
+export function missingId(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * A signed-in API client with no browser: for checking what the server allows and refuses.
+ * It sends the `Origin` header a browser would, which the server's CSRF check requires on
+ * anything that changes data, so a refusal from a test is never just a missing header.
+ */
+export async function signedInApi(
+  playwright: PlaywrightWorkerArgs['playwright'],
+  email: string,
+  name?: string,
+): Promise<APIRequestContext> {
+  const api = await playwright.request.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { origin: ORIGIN },
+  });
+  const response = await api.post('/api/auth/dev-login', { data: { email, name } });
+  if (!response.ok()) throw new Error(`dev login failed: ${response.status()}`);
+  return api;
+}
+
+/** Opens a tab of the group page (Expenses, Balances, Activity, Members). */
+export async function openGroupTab(page: Page, tab: string): Promise<void> {
+  await page.getByRole('tab', { name: tab }).click();
+}
+
+/** The owner makes an invite link on the Members tab and gets its address. */
+export async function createInviteLink(page: Page): Promise<string> {
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Invite people' }).click();
+  const link = page.getByLabel('Invite link');
+  await expect(link).toHaveValue(/\/join\//);
+  const value = await link.inputValue();
+  await page.keyboard.press('Escape');
+  return value;
+}
+
+/** Opens an invite link and joins the group. */
+export async function joinViaLink(page: Page, link: string): Promise<void> {
+  await page.goto(new URL(link).pathname);
+  await expect(page.getByText(/invited you to/)).toBeVisible();
+  await page.getByRole('button', { name: 'Join group' }).click();
+}
+
+/** The owner adds someone who doesn't use the app, on the Members tab. */
+export async function addPlaceholderMember(page: Page, name: string): Promise<void> {
+  await openGroupTab(page, 'Members');
+  await page.getByRole('button', { name: 'Add someone without the app' }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill(name);
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText(`${name} was added`)).toBeVisible();
+}
+
+/** Alice (signed in on `page`) with a new shared group and `Sam`, who is not on the app. */
+export async function groupWithPlaceholder(
+  page: Page,
+  groupName: string,
+  placeholder = 'Sam',
+): Promise<void> {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, groupName);
+  await addPlaceholderMember(page, placeholder);
+  await openGroupTab(page, 'Expenses');
+}
+
+/** Opens the add-expense form from a group's Expenses or Balances tab. */
+export async function openGroupExpenseForm(page: Page): Promise<void> {
+  await page.getByRole('link', { name: 'Add expense' }).click();
+  await expect(page.getByLabel('Amount', { exact: true })).toBeVisible();
+}
+
+/** The form's submit button, which stays disabled until what was typed can be saved. */
+export function submitButton(page: Page, label: 'Add expense' | 'Save changes' = 'Add expense') {
+  return page.getByRole('button', { name: label });
+}
+
+/**
+ * Alice (signed in on `page`) owns a new group that Bob has joined from his own browser, and
+ * Alice's device already knows about him. Returns Bob's browser, the invite link, and the group's
+ * address (`/groups/<id>`).
+ */
+export async function groupOfTwo(page: Page, browser: Browser, name: string) {
+  await page.goto('/login');
+  await devSignIn(page, uniqueEmail('alice'), 'Alice');
+  await createGroup(page, name);
+  const groupPath = new URL(page.url()).pathname;
+  const link = await createInviteLink(page);
+  const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
+  await joinViaLink(bob.page, link);
+  await expect(bob.page.getByRole('heading', { name })).toBeVisible();
+  await page.reload();
+  return { bob, link, groupPath };
+}
+
+/**
+ * Chooses an option from a drop-down, whichever kind it is: the browser's own `<select>` or the
+ * app's Select (a button that opens a list of options). Tests that use this keep working when a
+ * native select is replaced by the shadcn one (see BUG-005 in docs/known-bugs.md).
+ */
+export async function chooseOption(
+  page: Page,
+  label: string | RegExp,
+  option: string,
+): Promise<void> {
+  const control = page.getByLabel(label, { exact: typeof label === 'string' });
+  const isNative = await control.evaluate((el) => el.tagName === 'SELECT');
+  if (isNative) {
+    await control.selectOption({ label: option });
+    return;
+  }
+  await control.click();
+  await page.getByRole('option', { name: option, exact: true }).click();
+}
+
+/**
+ * The drop-downs on the page that are the browser's own, by id or label. Not counted: the month
+ * and year lists inside the shadcn calendar, and the hidden copy Radix keeps of each Select.
+ */
+export async function nativeDropdowns(page: Page): Promise<string[]> {
+  return page
+    .locator('select')
+    .evaluateAll((all) =>
+      all
+        .filter(
+          (el) =>
+            el.getAttribute('aria-hidden') !== 'true' && !el.className.toString().includes('rdp-'),
+        )
+        .map((el) => el.id || el.getAttribute('aria-label') || 'unnamed'),
+    );
+}
+
+/** The choices a drop-down offers, as the person reads them (works for either kind). */
+export async function dropdownOptions(page: Page, label: string): Promise<string[]> {
+  const control = page.getByLabel(label, { exact: true });
+  if (await control.evaluate((el) => el.tagName === 'SELECT')) {
+    return control.locator('option').allTextContents();
+  }
+  await control.click();
+  await expect(page.getByRole('option').first()).toBeVisible();
+  const texts = await page.getByRole('option').allTextContents();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('option')).toHaveCount(0);
+  return texts;
+}
+
+/** What a drop-down currently shows as chosen (works for either kind). */
+export async function chosenOption(page: Page, label: string): Promise<string> {
+  const control = page.getByLabel(label, { exact: true });
+  return control.evaluate((el) =>
+    el.tagName === 'SELECT'
+      ? ((el as HTMLSelectElement).selectedOptions[0]?.textContent ?? '')
+      : (el.textContent ?? ''),
+  );
+}
+
+/**
+ * The hourly job that makes recurring expenses is shared by every test, and takes only the ten
+ * oldest rules that are due on each run. A test that saves a rule starting today and never runs
+ * the job leaves it waiting, and it then competes with the rules of the tests that do run the job.
+ * So a test that just needs a rule to exist starts it this far ahead, when nothing is due.
+ */
+export const NOT_DUE_FOR_DAYS = 60;
+
+/** Moves a new recurring rule's "First on" date out of the scheduled job's reach. */
+export async function startRuleLater(page: Page): Promise<void> {
+  await pickDate(page, 'First on', daysAgo(-NOT_DUE_FOR_DAYS));
 }
