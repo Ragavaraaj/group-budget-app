@@ -1,7 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#0f766e"/>
-  <g fill="none" stroke="#ffffff" stroke-width="30">
-    <circle cx="204" cy="256" r="104"/>
-    <circle cx="308" cy="256" r="104"/>
+  <!-- Two coins sharing one overlap (the group's split), with a rupee where they meet. Full-bleed
+       square; the artwork stays inside the 80% maskable safe zone. Regenerate the PNGs with
+       `npm run icons -w @budget/web`. -->
+  <rect width="512" height="512" fill="#0b5a54"/>
+  <g transform="translate(256 256) scale(1.18) translate(-256 -256)">
+    <circle cx="206" cy="256" r="100" fill="#5eead4"/>
+    <circle cx="306" cy="256" r="100" fill="#fdba74"/>
+    <path d="M256 169.4A100 100 0 0 1 256 342.6A100 100 0 0 1 256 169.4Z" fill="#ffffff"/>
+    <path d="M231 214H281M231 236H281M236 214h14a21 21 0 0 1 0 42h-14l38 44" fill="none" stroke="#0b5a54" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
