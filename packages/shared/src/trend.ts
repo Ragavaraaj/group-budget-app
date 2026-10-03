@@ -1,5 +1,5 @@
 import { DEFAULT_MONTH_START_DAY, periodKeyOf } from './periods';
-import { type Measure, type ReportExpense, spendOf } from './reports';
+import { type Measure, type ReportExpense, spendOf } from './spend';
 
 export interface TrendPoint {
   /** The period key. */

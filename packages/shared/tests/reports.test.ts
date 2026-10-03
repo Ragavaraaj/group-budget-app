@@ -7,9 +7,17 @@ import {
   evaluateBudgets,
   newestPerCategory,
 } from '../src/budgets';
-import { changeBetween, dailyAverage, daysElapsed, shareBp } from '../src/report-maths';
-import { type ReportExpense, spendOf, summarise } from '../src/reports';
-import { trend } from '../src/trend';
+import {
+  changeBetween,
+  collapseTail,
+  dailyAverage,
+  daysElapsed,
+  type ReportExpense,
+  shareBp,
+  spendOf,
+  summarise,
+  trend,
+} from '../src/reports';
 
 const expense = (
   occurredOn: string,
@@ -152,6 +160,18 @@ describe('small helpers', () => {
     expect(changeBetween(10_000, 12_500)).toEqual({ deltaMinor: 2_500, bp: 2_500 });
     expect(changeBetween(10_000, 7_500)).toEqual({ deltaMinor: -2_500, bp: -2_500 });
     expect(changeBetween(0, 500)).toEqual({ deltaMinor: 500, bp: null });
+  });
+
+  it('folds the smallest categories into "other"', () => {
+    const list = [10, 8, 6, 4, 2].map((n, i) => ({
+      categoryId: `c${i}`,
+      amountMinor: n * 100,
+      count: 1,
+    }));
+    const { shown, other } = collapseTail(list, 3);
+    expect(shown.map((c) => c.categoryId)).toEqual(['c0', 'c1']);
+    expect(other).toEqual({ amountMinor: 1_200, count: 3 });
+    expect(collapseTail(list, 5).other).toBeNull();
   });
 });
 

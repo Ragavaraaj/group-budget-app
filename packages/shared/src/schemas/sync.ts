@@ -10,7 +10,8 @@ import {
   settlementRowSchema,
 } from './rows';
 
-/** The pull side of sync. What a device pushes is in `mutations.ts`. */
+/** The pull side of sync. What a device pushes is in `mutations.ts`, re-exported here. */
+export * from './mutations';
 
 export const pullQuerySchema = z.object({
   since: z.coerce.number().int().min(0).default(0),

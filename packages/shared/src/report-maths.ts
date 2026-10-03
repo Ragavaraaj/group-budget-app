@@ -1,4 +1,5 @@
 import { daysBetween } from './dates';
+import type { CategoryTotal } from './reports';
 
 /** Small sums the reports and budgets screens show next to the totals. */
 
@@ -30,5 +31,25 @@ export function changeBetween(
   return {
     deltaMinor: current - previous,
     bp: previous > 0 ? Math.round(((current - previous) * 10_000) / previous) : null,
+  };
+}
+
+/**
+ * Keeps the biggest categories and folds the rest into one "other" total, so a chart stays
+ * readable however many categories a group made.
+ */
+export function collapseTail(
+  list: readonly CategoryTotal[],
+  keep: number,
+): { shown: CategoryTotal[]; other: { amountMinor: number; count: number } | null } {
+  if (list.length <= keep) return { shown: [...list], other: null };
+  const shown = list.slice(0, keep - 1);
+  const rest = list.slice(keep - 1);
+  return {
+    shown,
+    other: {
+      amountMinor: rest.reduce((sum, c) => sum + c.amountMinor, 0),
+      count: rest.reduce((sum, c) => sum + c.count, 0),
+    },
   };
 }

@@ -3,6 +3,9 @@
  * so an expense entered at 00:30 IST never lands on the wrong day. Month keys live in `months.ts`.
  */
 
+// Month keys are in `months.ts`; re-exported here, where they were first defined.
+export { addMonths, dateInMonth, daysInMonth, monthKey, monthRange } from './months';
+
 const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function pad(n: number, width = 2): string {
