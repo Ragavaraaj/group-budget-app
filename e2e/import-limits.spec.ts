@@ -154,9 +154,6 @@ test.describe('CSV import: a long statement', () => {
     page,
   }) => {
     test.setTimeout(120_000);
-    // BUG-001 (docs/known-bugs.md): the rows after the 500th are never offered. When this test
-    // starts to pass the bug is fixed: remove this line and move the entry to "Fixed".
-    test.fail(true, 'BUG-001: rows after the 500th cannot be imported');
     await page.goto('/login');
     await devSignIn(page, uniqueEmail('import-long'));
     await page.goto('/settings/import');
@@ -169,7 +166,7 @@ test.describe('CSV import: a long statement', () => {
     await expect(page.getByTestId('import-rows').getByRole('listitem')).toHaveCount(500);
     await page.getByRole('button', { name: /^Import 500 expenses/ }).click();
     await expect(page).toHaveURL(/\/$/, { timeout: 90_000 });
-    await expect(page.getByText('500 expenses')).toBeVisible();
+    await expect(page.getByText('500 expenses', { exact: true })).toBeVisible();
 
     // "...import them, then choose the file again for the rest (the ones you have imported will
     // be unticked)."

@@ -113,7 +113,7 @@ In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to it
   - A calendar closes with an animation: `pickDate` and `clearDate` wait for it, so use them
     instead of clicking through the picker yourself.
   - Use `chooseOption` for drop-downs, so a test works whether the control is a native select or the
-    shadcn Select (see BUG-005 in `docs/known-bugs.md`).
+    shadcn Select.
 - What is and is not covered, with counts: [`docs/testing.md`](docs/testing.md). Update it when you add specs.
 - **When a test finds a real bug**, do not weaken the test. Write the bug up in
   [`docs/known-bugs.md`](docs/known-bugs.md) (steps, expected, actual, cause, the test) and mark the

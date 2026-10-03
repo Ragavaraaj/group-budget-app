@@ -37,12 +37,9 @@ const titleSpill = (page: Page) =>
   });
 
 test.describe('the version on the Settings screen', () => {
-  // BUG-003 (docs/known-bugs.md): the whole commit id is one unbreakable word that spills out of
-  // its card and widens the page. When this passes, remove the `fail` line and update the entry.
   test('a full commit id is cut short with an ellipsis, inside its card, on any phone', async ({
     page,
   }) => {
-    test.fail(true, 'BUG-003: the version overflows its card and the page');
     await page.goto('/login');
     await devSignIn(page, uniqueEmail('version'));
     await page.route('**/api/healthz', (route) =>
@@ -154,10 +151,7 @@ test.describe('long names on a narrow phone', () => {
     await fits('import preview, long narration and file name');
   });
 
-  // BUG-004 (docs/known-bugs.md): a long unbroken group name widens these screens or spills out
-  // of these dialogs. Each test passes once its screen is fixed; remove its `fail` line then.
   test('the add-expense header keeps a long group name inside the screen', async ({ page }) => {
-    test.fail(true, 'BUG-004: a long group name widens the add-expense header');
     await page.goto('/login');
     await devSignIn(page, uniqueEmail('long-form'));
     await createGroup(page, LONG_GROUP);
@@ -168,7 +162,6 @@ test.describe('long names on a narrow phone', () => {
   test('the category chips on the expense forms keep a long category name inside the screen', async ({
     page,
   }) => {
-    test.fail(true, 'BUG-004: a long category name widens the expense and recurring forms');
     await page.goto('/login');
     await devSignIn(page, uniqueEmail('long-category'));
     await page.goto('/settings/categories');
@@ -185,7 +178,6 @@ test.describe('long names on a narrow phone', () => {
   });
 
   test('the join page keeps a long group name inside the screen', async ({ page, browser }) => {
-    test.fail(true, 'BUG-004: a long group name widens the join page');
     await page.goto('/login');
     await devSignIn(page, uniqueEmail('long-join'), 'Alice');
     await createGroup(page, LONG_GROUP);
@@ -208,7 +200,6 @@ test.describe('long names on a narrow phone', () => {
     page,
     browser,
   }) => {
-    test.fail(true, 'BUG-004: a long group name spills out of these dialog titles');
     const { bob } = await groupOfTwo(page, browser, LONG_GROUP);
     await openGroupTab(page, 'Members');
 

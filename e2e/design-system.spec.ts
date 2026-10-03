@@ -10,9 +10,7 @@ test.describe('drop-downs are the app’s Select, not the browser’s', () => {
     await devSignIn(page, uniqueEmail('design-system'));
   });
 
-  // BUG-005 (docs/known-bugs.md): "A month starts on day" is a native <select>.
   test('Settings: the month start day', async ({ page }) => {
-    test.fail(true, 'BUG-005: the month start day is a native select');
     await page.goto('/settings');
     await expect(page.getByLabel('A month starts on day')).toBeVisible();
     expect(await nativeDropdowns(page)).toEqual([]);
@@ -22,9 +20,7 @@ test.describe('drop-downs are the app’s Select, not the browser’s', () => {
     await expect(page.getByLabel('A month starts on day')).toContainText('25');
   });
 
-  // BUG-005: the column pickers and the category of every row are native selects too.
   test('Import from CSV: the column pickers and each row’s category', async ({ page }) => {
-    test.fail(true, 'BUG-005: the import screen uses native selects');
     const csv = ['Date,Description,Amount', '02/01/2026,Tea,-30.00'].join('\n');
     await page.goto('/settings/import');
     await page.getByTestId('statement-file').setInputFiles({

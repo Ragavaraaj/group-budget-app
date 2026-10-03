@@ -322,19 +322,54 @@ export interface ExistingExpense {
 }
 
 /**
- * Rows that look like something already recorded: the same day and the same amount. (Two coffees
- * at the same price on one day are possible, so this only suggests; the person can still tick one.)
+ * Rows that look like something already recorded: the same day and the same amount. Each recorded
+ * expense accounts for one row only, so a second ₹20 tea on the same day (one recorded, two in the
+ * file) is still offered. This only suggests; the person can still tick a flagged row.
  */
 export function findDuplicates(
   rows: readonly ImportRow[],
   existing: readonly ExistingExpense[],
 ): Set<number> {
-  const seen = new Set(existing.map((e) => `${e.occurredOn}|${e.amountMinor}`));
+  const unmatched = new Map<string, number>();
+  for (const e of existing) {
+    const key = `${e.occurredOn}|${e.amountMinor}`;
+    unmatched.set(key, (unmatched.get(key) ?? 0) + 1);
+  }
   const dupes = new Set<number>();
   rows.forEach((row, index) => {
-    if (seen.has(`${row.date}|${row.amountMinor}`)) dupes.add(index);
+    const key = `${row.date}|${row.amountMinor}`;
+    const left = unmatched.get(key) ?? 0;
+    if (left === 0) return;
+    dupes.add(index);
+    unmatched.set(key, left - 1);
   });
   return dupes;
+}
+
+/**
+ * Which rows of a long file the page shows, as `[start, end)`. At most `max` of them are ticked, so
+ * the person can never import more than `max` at once, and rows they untick (a transfer, a card
+ * bill) do not use up places. In a file of more than `max` rows the run of already-recorded rows at
+ * the top is left out, so choosing the file again lands on the rows that still need importing
+ * rather than on a screenful of rows that are done. `recorded` holds positions in `rows`.
+ */
+export function importWindow(
+  rows: readonly ImportRow[],
+  recorded: ReadonlySet<number>,
+  isTicked: (row: ImportRow, index: number) => boolean,
+  max: number,
+): { start: number; end: number } {
+  let start = 0;
+  if (rows.length > max) {
+    while (start < rows.length && recorded.has(start)) start++;
+  }
+  let ticked = 0;
+  for (const [index, row] of rows.entries()) {
+    if (index < start || !isTicked(row, index)) continue;
+    if (ticked === max) return { start, end: index };
+    ticked++;
+  }
+  return { start, end: rows.length };
 }
 
 // Words that appear in Indian bank narrations, tried in order, and the default category each means.

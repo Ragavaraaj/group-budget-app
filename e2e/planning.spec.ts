@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   addExpenseOn,
+  chooseOption,
   daysAgo,
   devSignIn,
   pickDate,
@@ -225,9 +226,9 @@ test.describe('months', () => {
     await expect(page.getByText(/^[A-Z][a-z]+ \d{4}$/).first()).toBeVisible();
 
     await page.goto('/settings');
-    await page.getByLabel('A month starts on day').selectOption('25');
+    await chooseOption(page, 'A month starts on day', '25');
     // The select shows what is stored, so once it says 25 the setting has been written.
-    await expect(page.getByLabel('A month starts on day')).toHaveValue('25');
+    await expect(page.getByLabel('A month starts on day')).toContainText('25');
     await page.goto('/');
     // "25 Sep – 24 Oct 2026": a range rather than a calendar month.
     await expect(

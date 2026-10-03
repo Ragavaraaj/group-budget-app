@@ -15,9 +15,14 @@ export function ServerStatusCard() {
       <CardContent aria-live="polite">
         {state.kind === 'checking' && <Skeleton className="h-6 w-24" />}
         {state.kind === 'online' && (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <Badge>Online</Badge>
-            <span className="text-muted-foreground text-sm">version {state.health.version}</span>
+            <span
+              className="text-muted-foreground min-w-0 truncate text-sm"
+              title={state.health.version}
+            >
+              version {state.health.version}
+            </span>
           </div>
         )}
         {state.kind === 'unreachable' && state.deviceOffline && (

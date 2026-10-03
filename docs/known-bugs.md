@@ -2,8 +2,9 @@
 
 # Known bugs
 
-Bugs found by the end-to-end tests that are not fixed yet. Each entry says what happens, how to see
-it, what should happen, where the cause is, and which test shows it. The test for an open bug is
+Bugs found by the end-to-end tests. All of the ones found so far are fixed (see [Fixed](#fixed)).
+Each entry says what happens, how to see it, what should happen, where the cause is, and which test
+shows it. The test for an open bug is
 marked `test.fail(...)` with its id, so the suite stays green while it is open and **fails the
 moment the bug is fixed** ("expected to fail, but passed"): remove the annotation and move the entry
 to [Fixed](#fixed) then.
@@ -14,11 +15,11 @@ test.
 
 | Id | Area | Severity | Status | Summary |
 | --- | --- | --- | --- | --- |
-| [BUG-001](#bug-001-a-csv-file-with-more-than-500-spending-rows-cannot-be-imported-in-full) | Import | Medium | Open | Rows after the 500th of a statement can never be imported |
-| [BUG-002](#bug-002-the-refused-changes-panel-says-saving-a-expense) | Settings | Low | Open | The "Changes the server didn’t accept" panel says "Saving a expense" |
-| [BUG-003](#bug-003-the-version-on-the-settings-screen-overflows-its-card-and-widens-the-page) | Settings | Medium | Open | The commit id shown as the version spills out of its card and widens the page on a phone |
-| [BUG-004](#bug-004-a-long-name-with-no-spaces-pushes-some-screens-and-dialogs-sideways) | Layout | Low | Open | A long name with no spaces widens the add-expense form, the join page and some dialog titles |
-| [BUG-005](#bug-005-some-drop-downs-are-the-browsers-own-select-not-the-shadcn-select) | Design system | Low | Open | Month start day and the import pickers are native `<select>`s, not the shadcn Select |
+| [BUG-001](#bug-001-a-csv-file-with-more-than-500-spending-rows-cannot-be-imported-in-full) | Import | Medium | Fixed | Rows after the 500th of a statement can never be imported |
+| [BUG-002](#bug-002-the-refused-changes-panel-says-saving-a-expense) | Settings | Low | Fixed | The "Changes the server didn’t accept" panel says "Saving a expense" |
+| [BUG-003](#bug-003-the-version-on-the-settings-screen-overflows-its-card-and-widens-the-page) | Settings | Medium | Fixed | The commit id shown as the version spills out of its card and widens the page on a phone |
+| [BUG-004](#bug-004-a-long-name-with-no-spaces-pushes-some-screens-and-dialogs-sideways) | Layout | Low | Fixed | A long name with no spaces widens the add-expense form, the join page and some dialog titles |
+| [BUG-005](#bug-005-some-drop-downs-are-the-browsers-own-select-not-the-shadcn-select) | Design system | Low | Fixed | Month start day and the import pickers are native `<select>`s, not the shadcn Select |
 
 Severity: **High** loses or corrupts data, or blocks sign-in; **Medium** blocks a flow, or shows
 wrong on a main screen for everyone; **Low** needs unusual input (a very long name with no spaces),
@@ -26,13 +27,27 @@ or is wording or consistency.
 
 ## Open
 
+None at the moment.
+
+### Observation, not a bug: a budget at 99.5% to 99.99% reads "is at 100% of its budget"
+
+The Expenses screen's budget alert rounds the percentage, so ₹999 spent of a ₹1,000 budget says "is
+at 100% of its budget" while the budget is not yet over (the "over" wording starts at exactly 100%
+by the unrounded figure). It is accurate to the rounding, and the Budgets screen shows "₹1 left",
+so it is left as is; it is recorded here because it can look like a contradiction. Not covered by a
+test on purpose (a test would pin the rounding, not a requirement).
+
+## Fixed
+
 ### BUG-001: A CSV file with more than 500 spending rows cannot be imported in full
+
+**Fixed:** The page shows a window of the file with at most 500 _ticked_ rows, and when the file has more than 500 rows it starts after the already-recorded rows at the top (`importWindow` in `bank.ts`), so choosing the file again lands on the rest. A recorded expense now accounts for one row only (`findDuplicates`). The test no longer carries `test.fail`.
 
 - **Area:** Import from CSV (`apps/web/src/features/import/import-page.tsx`)
 - **Severity:** Medium. No data is lost, but the page promises something it cannot do, and the
   rows past 500 can only be added by hand or by editing the file.
 - **Test:** `e2e/import-limits.spec.ts`, "shows the first 500, and importing them lets the rest be
-  imported by choosing the file again" (marked `test.fail`).
+  imported by choosing the file again" (was marked `test.fail` until the fix).
 
 **What happens.** A statement with 501 or more spending rows shows the first 500 and a warning:
 
@@ -75,10 +90,12 @@ the rest), and word the warning to match. The unit tests for `findDuplicates` do
 
 ### BUG-002: The "refused changes" panel says "Saving a expense"
 
+**Fixed:** A map from entity to its phrase with article (`ENTITY_PHRASES` in `settings-page.tsx`). The test no longer carries `test.fail`.
+
 - **Area:** Settings, Sync card (`apps/web/src/features/settings/settings-page.tsx`)
 - **Severity:** Low. Wording only, on an error path.
 - **Test:** `e2e/sync-and-export.spec.ts`, "the explanation reads properly: "Saving an expense""
-  (marked `test.fail`).
+  (was marked `test.fail` until the fix).
 
 **What happens.** When the server refuses a change, Settings lists it under "Changes the server
 didn’t accept". For a refused expense the line reads:
@@ -98,12 +115,14 @@ category", "a payment", "a budget", "a recurring expense"), used for all three v
 
 ### BUG-003: The version on the Settings screen overflows its card and widens the page
 
+**Fixed:** `min-w-0 truncate` on the version, with the whole id in a `title` (`server-status-card.tsx`). The test no longer carries `test.fail`.
+
 - **Area:** Settings, Server card (`apps/web/src/features/status/server-status-card.tsx`, the
   `version …` line)
 - **Severity:** Medium. Every deployed build reports the commit it was built from as its version
   (CI passes `--var APP_VERSION:${{ github.sha }}`), so everyone on a narrow phone sees it.
 - **Test:** `e2e/layout.spec.ts`, "a full commit id is cut short with an ellipsis, inside its card,
-  on any phone" (marked `test.fail`).
+  on any phone" (was marked `test.fail` until the fix).
 
 **What happens.** The version is a 40-character commit id such as
 `456a78104d18887ca25906b94e71cdf79d103eee`: one word with nowhere to wrap. It sits in a row next to
@@ -132,11 +151,13 @@ the first 7 characters and put the whole id in a `title`.
 
 ### BUG-004: A long name with no spaces pushes some screens and dialogs sideways
 
+**Fixed:** `min-w-0`/`truncate` on the add-expense heading and category chips, `overflow-wrap: anywhere` on dialog titles and the join page sentence. The test no longer carries `test.fail`.
+
 - **Area:** layout, several screens
 - **Severity:** Low. It needs a name with nothing to wrap at (a pasted link, a long run of
   characters). Group names go up to 60 characters, category names 40 and people's names 100.
-- **Tests:** `e2e/layout.spec.ts`, four tests under "long names on a narrow phone" (each marked
-  `test.fail`). A fifth, "a long name, note, category and email stay inside the screen on the main
+- **Tests:** `e2e/layout.spec.ts`, four tests under "long names on a narrow phone" (each was marked
+  `test.fail` until the fix). A fifth, "a long name, note, category and email stay inside the screen on the main
   screens", passes and guards the screens that are fine.
 
 **What happens.** Measured on a 360 px phone, with a 60-character group name or a 40-character
@@ -162,10 +183,12 @@ their box.
 
 ### BUG-005: Some drop-downs are the browser's own `<select>`, not the shadcn Select
 
+**Fixed:** The month start day, the import column pickers and per-row categories use `components/ui/select`; the preview tick boxes use the shadcn `Checkbox`. The test no longer carries `test.fail`.
+
 - **Area:** design system, three places
 - **Severity:** Low. They work, but look and behave unlike the rest of the app (the browser's
   picker, its own styling in dark mode and on iOS and Android).
-- **Tests:** `e2e/design-system.spec.ts`, two tests (each marked `test.fail`). A third, "everywhere
+- **Tests:** `e2e/design-system.spec.ts`, two tests (each was marked `test.fail` until the fix). A third, "everywhere
   else, including every screen that has a group chooser", passes: no other screen has a native
   select, and it keeps it that way.
 
@@ -194,15 +217,3 @@ choosers already do).
   `e2e/import.spec.ts` ("lets a column be changed when it was guessed wrong" and "keeps a tick on
   the same transaction when the dates are read another way"). The new tests use the `chooseOption`
   helper in `e2e/helpers.ts`, which handles both kinds, so they will not need to change.
-
-### Observation, not a bug: a budget at 99.5% to 99.99% reads "is at 100% of its budget"
-
-The Expenses screen's budget alert rounds the percentage, so ₹999 spent of a ₹1,000 budget says "is
-at 100% of its budget" while the budget is not yet over (the "over" wording starts at exactly 100%
-by the unrounded figure). It is accurate to the rounding, and the Budgets screen shows "₹1 left",
-so it is left as is; it is recorded here because it can look like a contradiction. Not covered by a
-test on purpose (a test would pin the rounding, not a requirement).
-
-## Fixed
-
-Nothing yet.

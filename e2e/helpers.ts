@@ -224,7 +224,7 @@ export async function groupOfTwo(page: Page, browser: Browser, name: string) {
 /**
  * Chooses an option from a drop-down, whichever kind it is: the browser's own `<select>` or the
  * app's Select (a button that opens a list of options). Tests that use this keep working when a
- * native select is replaced by the shadcn one (see BUG-005 in docs/known-bugs.md).
+ * native select is replaced by the shadcn one.
  */
 export async function chooseOption(
   page: Page,

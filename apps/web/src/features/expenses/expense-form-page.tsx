@@ -210,10 +210,12 @@ function ExpenseForm({ existing, groupId }: ExpenseFormProps) {
             <ArrowLeft />
           </Link>
         </Button>
-        <h1 className="flex-1 text-xl font-semibold tracking-tight">
+        <h1 className="min-w-0 flex-1 text-xl font-semibold tracking-tight">
           {existing ? 'Edit expense' : 'Add expense'}
           {shared && group ? (
-            <span className="text-muted-foreground block text-sm font-normal">{group.name}</span>
+            <span className="text-muted-foreground block truncate text-sm font-normal">
+              {group.name}
+            </span>
           ) : null}
         </h1>
         {existing ? (

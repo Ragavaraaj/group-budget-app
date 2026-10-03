@@ -6,6 +6,7 @@ import {
   findDuplicates,
   findHeaderRow,
   guessSpendingSign,
+  importWindow,
   interpretRows,
   looksLikeHeader,
   parseAmount,
@@ -346,7 +347,16 @@ describe('duplicates and categories', () => {
 
   it('flags rows that match an expense already recorded (same day, same amount)', () => {
     const dupes = findDuplicates(rows, [{ occurredOn: '2026-10-02', amountMinor: 45_000 }]);
-    expect([...dupes]).toEqual([0, 2]);
+    // One recorded expense accounts for one row: the second ₹450 on that day is still offered.
+    expect([...dupes]).toEqual([0]);
+  });
+
+  it('flags as many rows as there are matching recorded expenses', () => {
+    const twice = [
+      { occurredOn: '2026-10-02', amountMinor: 45_000 },
+      { occurredOn: '2026-10-02', amountMinor: 45_000 },
+    ];
+    expect([...findDuplicates(rows, twice)]).toEqual([0, 2]);
   });
 
   it('flags nothing when nothing matches', () => {
@@ -367,5 +377,74 @@ describe('duplicates and categories', () => {
     expect(suggestCategory('DELHI METRO RECHARGE', categories)).toBe('transport');
     // A group that has no such category gets no suggestion rather than a wrong one.
     expect(suggestCategory('UPI-SWIGGY', [{ id: 'x', name: 'Misc' }])).toBeNull();
+  });
+});
+
+describe('importWindow', () => {
+  const make = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      line: i + 2,
+      date: '2026-10-02',
+      amountMinor: 100 + i,
+      note: `Row ${i + 1}`,
+    }));
+  const tickedUnlessRecorded =
+    (recorded: ReadonlySet<number>, unticked: ReadonlySet<number> = new Set()) =>
+    (_row: unknown, index: number) =>
+      !recorded.has(index) && !unticked.has(index);
+
+  it('shows a short file whole', () => {
+    const rows = make(4);
+    const recorded = new Set([0, 1, 2, 3]);
+    expect(importWindow(rows, recorded, tickedUnlessRecorded(recorded), 5)).toEqual({
+      start: 0,
+      end: 4,
+    });
+  });
+
+  it('stops before the row that would be one ticked row too many', () => {
+    const rows = make(7);
+    expect(importWindow(rows, new Set(), tickedUnlessRecorded(new Set()), 5)).toEqual({
+      start: 0,
+      end: 5,
+    });
+  });
+
+  it('leaves out the recorded rows at the top of a long file, so the rest can be reached', () => {
+    const rows = make(8);
+    const recorded = new Set([0, 1, 2, 3, 4]);
+    expect(importWindow(rows, recorded, tickedUnlessRecorded(recorded), 5)).toEqual({
+      start: 5,
+      end: 8,
+    });
+  });
+
+  it('keeps recorded rows that come after a new one, unticked and not counted', () => {
+    const rows = make(8);
+    const recorded = new Set([0, 1, 4]);
+    // Rows 2, 3, 5, 6 and 7 are the five ticked ones; row 4 sits among them, unticked.
+    expect(importWindow(rows, recorded, tickedUnlessRecorded(recorded), 5)).toEqual({
+      start: 2,
+      end: 8,
+    });
+  });
+
+  it('does not spend places on rows the person unticked', () => {
+    const rows = make(8);
+    const unticked = new Set([0, 1, 2]);
+    // Five ticked rows (3 to 7) fit, so the whole file is within reach.
+    expect(importWindow(rows, new Set(), tickedUnlessRecorded(new Set(), unticked), 5)).toEqual({
+      start: 0,
+      end: 8,
+    });
+  });
+
+  it('counts a recorded row the person ticked, so the total never passes the limit', () => {
+    const rows = make(7);
+    // Row 3 is recorded but the person ticked it, so all seven are ticked and only five fit.
+    const recorded = new Set([3]);
+    const { start, end } = importWindow(rows, recorded, () => true, 5);
+    expect(start).toBe(0);
+    expect(end).toBe(5);
   });
 });

@@ -47,7 +47,7 @@ export function JoinPage() {
   if (state.status === 'loading') return <SplashScreen />;
 
   return (
-    <div className="mx-auto grid min-h-dvh max-w-sm place-items-center px-4 py-10">
+    <div className="mx-auto grid min-h-dvh max-w-sm grid-cols-[minmax(0,1fr)] place-items-center px-4 py-10">
       <Card className="w-full">
         <CardContent className="space-y-6">
           <div className="space-y-1 text-center">
@@ -55,7 +55,7 @@ export function JoinPage() {
             {preview === null ? (
               <Spinner className="text-muted-foreground mx-auto" />
             ) : preview !== 'error' && preview.valid ? (
-              <p className="text-muted-foreground text-sm">
+              <p className="text-muted-foreground text-sm [overflow-wrap:anywhere]">
                 {preview.invitedBy} invited you to <strong>{preview.groupName}</strong>.
               </p>
             ) : (
