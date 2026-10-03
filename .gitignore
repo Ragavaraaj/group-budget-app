@@ -22,5 +22,8 @@ data/
 *.db-shm
 *.db-wal
 
-# graphify: generated knowledge graph (rebuild with `graphify extract . --code-only`)
-graphify-out/
+# graphify: graph.json, GRAPH_REPORT.md, manifest.json and cache/ are committed so every session
+# can query them; only the bulky or throwaway outputs are ignored.
+graphify-out/graph.html
+graphify-out/.graphify_analysis.json
+graphify-out/.graphify_*

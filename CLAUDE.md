@@ -34,9 +34,11 @@ graphify affected "resolveSplit"                              # what breaks if t
 graphify god-nodes --top 10                                   # the architectural hubs
 ```
 
-- `graphify-out/` is generated and **git-ignored**. Rebuild it after pulling or after large changes
-  (`graphify extract . --code-only`); a stale graph is worse than none, so if a result disagrees with
-  the file you open, trust the file.
+- `graphify-out/` (`graph.json`, `GRAPH_REPORT.md`, `manifest.json`, `cache/`) is **committed**, so a
+  fresh clone or cloud session can query it straight away (only `graph.html` is git-ignored). Refresh
+  it with `graphify extract . --code-only && graphify cluster-only .` after large changes and commit the
+  result with them; a stale graph is worse than none, so if a result disagrees with the file you open,
+  trust the file.
 - `--code-only` indexes code with tree-sitter on this machine: nothing leaves it and it costs no
   tokens. The docs in `docs/` are not indexed that way; read the relevant one directly (the table below).
 - **The graph is refreshed on every commit** by Graphify's git hooks: `post-commit` re-extracts the
@@ -46,11 +48,12 @@ graphify god-nodes --top 10                                   # the architectura
   with `graphify hook uninstall`). Progress and errors go to `~/.cache/graphify-rebuild.log`; skip a
   single commit with `GRAPHIFY_SKIP_HOOK=1 git commit ...`. If the hook is not installed, run
   `graphify update .` yourself after committing.
-- `graphify hook install` also writes a `merge=graphify` line to `.gitattributes`. It is for a tracked
-  `graph.json`, which this repo does not have, so delete that file instead of committing it.
+- `graphify hook install` also writes a `merge=graphify` line to `.gitattributes`, which unions
+  `graph.json` on a merge (`graph.json` is tracked here, so keep it). Without it, resolve a conflict in
+  `graphify-out/` by rebuilding the graph, not by hand.
 - Graphify's Claude Code hook (`graphify claude install`, a `PreToolUse` hook plus a CLAUDE.md
   section) is **not** installed here; this section is the reference instead.
-- Do not commit `graphify-out/`, and do not edit it by hand.
+- Do not edit `graphify-out/` by hand; regenerate it.
 
 ## Commands (run from the repo root)
 
