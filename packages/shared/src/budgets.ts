@@ -1,4 +1,5 @@
-import { type ReportExpense, shareBp, summarise } from './reports';
+import { shareBp } from './report-maths';
+import { type ReportExpense, summarise } from './reports';
 
 /**
  * Budgets are monthly spending limits for a group: one overall, and one per category. Where a

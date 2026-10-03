@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addMonths, isValidLocalDate, monthKey, monthRange, toLocalDate } from '../src/dates';
+import { isValidLocalDate, toLocalDate } from '../src/dates';
+import { addMonths, monthKey, monthRange } from '../src/months';
 
 describe('toLocalDate', () => {
   it('uses local calendar fields, not UTC', () => {

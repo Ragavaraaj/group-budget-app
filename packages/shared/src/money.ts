@@ -51,9 +51,10 @@ export function formatPaise(paise: number): string {
   return formatter.format(paise / PAISE_PER_RUPEE);
 }
 
-/** Plain editable string for form fields: 12345 → "123.45", 12300 → "123". */
+/** Plain editable string for form fields: 12345 → "123.45", 12300 → "123", -50 → "-0.50". */
 export function toRupeesString(paise: number): string {
-  const whole = Math.trunc(paise / PAISE_PER_RUPEE);
-  const fraction = Math.abs(paise % PAISE_PER_RUPEE);
-  return fraction === 0 ? String(whole) : `${whole}.${String(fraction).padStart(2, '0')}`;
+  const sign = paise < 0 ? '-' : '';
+  const whole = Math.trunc(Math.abs(paise) / PAISE_PER_RUPEE);
+  const fraction = Math.abs(paise) % PAISE_PER_RUPEE;
+  return `${sign}${whole}${fraction === 0 ? '' : `.${String(fraction).padStart(2, '0')}`}`;
 }

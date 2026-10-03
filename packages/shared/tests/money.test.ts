@@ -71,4 +71,10 @@ describe('toRupeesString', () => {
     expect(toRupeesString(12_305)).toBe('123.05');
     expect(toRupeesString(5)).toBe('0.05');
   });
+
+  it('keeps the minus sign of an amount under one rupee', () => {
+    expect(toRupeesString(-50)).toBe('-0.50');
+    expect(toRupeesString(-150)).toBe('-1.50');
+    expect(toRupeesString(-100)).toBe('-1');
+  });
 });

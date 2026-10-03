@@ -1,68 +1,36 @@
+import { allocateByWeights } from './allocate';
+import {
+  BASIS_POINTS_TOTAL,
+  type SplitParticipant,
+  type SplitResult,
+  type SplitType,
+} from './split-types';
+
 /**
- * Turning "who shares this expense and how" into exact paise per person.
- *
- * Whatever the split type, the shares always add up to the total to the paisa. Fractions are
- * resolved with the largest-remainder method: everyone gets the floor of their exact share, and
- * the leftover paise go to the people whose exact share had the largest fractional part
- * (ties go to whoever comes first in the list). All arithmetic is on integers.
+ * Turning "who shares this expense and how" into exact paise per person. Whatever the split
+ * type, the shares always add up to the total to the paisa (see `allocateByWeights`).
  */
 
-export const SPLIT_TYPES = ['equal', 'exact', 'percent', 'shares'] as const;
-export type SplitType = (typeof SPLIT_TYPES)[number];
+export * from './split-types';
+export { allocateByWeights };
 
-/** Percent splits use basis points (1% = 100) so that fractions like 33.33% stay integers. */
-export const BASIS_POINTS_TOTAL = 10_000;
+const isPositiveInt = (value: number | undefined): value is number =>
+  value !== undefined && Number.isSafeInteger(value) && value > 0;
+const isPaise = (value: number | undefined): value is number =>
+  value !== undefined && Number.isSafeInteger(value) && value >= 0;
+const total = (values: readonly number[]) => values.reduce((sum, value) => sum + value, 0);
 
-export interface SplitParticipant {
-  userId: string;
-  /**
-   * What the person entered, by split type: nothing for `equal`; paise for `exact`;
-   * basis points for `percent`; a positive whole number of shares for `shares`.
-   */
-  value?: number;
-}
-
-export interface Share {
-  userId: string;
-  amountMinor: number;
-  /** The entered value, kept so the split can be shown and edited again later. */
-  weight?: number;
-}
-
-export type SplitError =
-  | 'no_participants'
-  | 'duplicate_participant'
-  | 'invalid_total'
-  | 'invalid_value'
-  | 'sum_mismatch';
-
-export type SplitResult = { ok: true; shares: Share[] } | { ok: false; error: SplitError };
-
-/** Splits `totalMinor` by integer weights using the largest-remainder method. */
-export function allocateByWeights(totalMinor: number, weights: readonly number[]): number[] {
-  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
-  if (weights.length === 0 || weightSum <= 0) return weights.map(() => 0);
-
-  const exact = weights.map((weight) => {
-    const product = totalMinor * weight;
-    return { floor: Math.floor(product / weightSum), remainder: product % weightSum };
-  });
-  const amounts = exact.map((entry) => entry.floor);
-
-  let leftover = totalMinor - amounts.reduce((sum, amount) => sum + amount, 0);
-  const order = exact
-    .map((entry, index) => ({ index, remainder: entry.remainder }))
-    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
-  for (const { index } of order) {
-    if (leftover <= 0) break;
-    amounts[index] = (amounts[index] ?? 0) + 1;
-    leftover -= 1;
-  }
-  return amounts;
-}
-
-function isPositiveInt(value: number | undefined): value is number {
-  return value !== undefined && Number.isSafeInteger(value) && value > 0;
+/** Shares by weight (percent or shares), each keeping the weight it was given. */
+function byWeight(totalMinor: number, participants: readonly SplitParticipant[]): SplitResult {
+  const weights = participants.map((p) => p.value);
+  if (!weights.every(isPositiveInt)) return { ok: false, error: 'invalid_value' };
+  const amounts = allocateByWeights(totalMinor, weights);
+  const shares = participants.map((p, i) => ({
+    userId: p.userId,
+    amountMinor: amounts[i] ?? 0,
+    weight: p.value,
+  }));
+  return { ok: true, shares };
 }
 
 export function computeShares(
@@ -77,6 +45,7 @@ export function computeShares(
   if (new Set(participants.map((p) => p.userId)).size !== participants.length) {
     return { ok: false, error: 'duplicate_participant' };
   }
+  const values = participants.map((p) => p.value);
 
   switch (type) {
     case 'equal': {
@@ -84,55 +53,27 @@ export function computeShares(
         totalMinor,
         participants.map(() => 1),
       );
-      return {
-        ok: true,
-        shares: participants.map((p, i) => ({ userId: p.userId, amountMinor: amounts[i] ?? 0 })),
-      };
+      const shares = participants.map((p, i) => ({
+        userId: p.userId,
+        amountMinor: amounts[i] ?? 0,
+      }));
+      return { ok: true, shares };
     }
-
-    case 'shares': {
-      const weights = participants.map((p) => p.value);
-      if (!weights.every(isPositiveInt)) return { ok: false, error: 'invalid_value' };
-      const amounts = allocateByWeights(totalMinor, weights);
-      return {
-        ok: true,
-        shares: participants.map((p, i) => ({
-          userId: p.userId,
-          amountMinor: amounts[i] ?? 0,
-          weight: p.value,
-        })),
-      };
-    }
-
-    case 'percent': {
-      const weights = participants.map((p) => p.value);
-      if (!weights.every(isPositiveInt)) return { ok: false, error: 'invalid_value' };
-      if (weights.reduce((sum, weight) => sum + weight, 0) !== BASIS_POINTS_TOTAL) {
+    case 'shares':
+      return byWeight(totalMinor, participants);
+    case 'percent':
+      if (values.every(isPositiveInt) && total(values) !== BASIS_POINTS_TOTAL) {
         return { ok: false, error: 'sum_mismatch' };
       }
-      const amounts = allocateByWeights(totalMinor, weights);
-      return {
-        ok: true,
-        shares: participants.map((p, i) => ({
-          userId: p.userId,
-          amountMinor: amounts[i] ?? 0,
-          weight: p.value,
-        })),
-      };
-    }
-
+      return byWeight(totalMinor, participants);
     case 'exact': {
-      const values = participants.map((p) => p.value);
-      if (!values.every((v): v is number => v !== undefined && Number.isSafeInteger(v) && v >= 0)) {
-        return { ok: false, error: 'invalid_value' };
-      }
-      if (values.reduce((sum, value) => sum + value, 0) !== totalMinor) {
-        return { ok: false, error: 'sum_mismatch' };
-      }
-      return {
-        ok: true,
-        shares: participants.map((p, i) => ({ userId: p.userId, amountMinor: values[i] ?? 0 })),
-      };
+      if (!values.every(isPaise)) return { ok: false, error: 'invalid_value' };
+      if (total(values) !== totalMinor) return { ok: false, error: 'sum_mismatch' };
+      const shares = participants.map((p, i) => ({
+        userId: p.userId,
+        amountMinor: values[i] ?? 0,
+      }));
+      return { ok: true, shares };
     }
   }
 }

@@ -21,6 +21,7 @@
     "e2e": "npm run build && playwright test",
     "db:generate": "npm run db:generate -w @budget/server",
     "check:ts-only": "! git ls-files '*.js' '*.jsx' '*.mjs' '*.cjs' | grep .",
+    "check:file-length": "git ls-files --cached --others --exclude-standard -- 'apps/*/src/*.ts' 'apps/*/src/*.tsx' 'apps/*/src/*.css' 'packages/*/src/*.ts' ':!apps/web/src/components/ui/*' | xargs awk 'FNR == 101 { print FILENAME \": over 100 lines; split it\"; failed = 1 } END { exit failed }'",
     "lint:fix": "biome check --write .",
     "deploy": "npm run build -w @budget/web && npm run deploy -w @budget/server",
     "db:migrate:local": "npm run db:migrate:local -w @budget/server"

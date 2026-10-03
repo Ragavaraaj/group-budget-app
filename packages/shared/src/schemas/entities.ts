@@ -1,29 +1,14 @@
 import { z } from 'zod';
-import type { Allocation } from '../balances';
-import { isUuid } from '../ids';
 import { CATEGORY_NAME_MAX, MAX_GROUP_MEMBERS, NOTE_MAX } from '../limits';
-import { MAX_PAISE } from '../money';
 import { RECURRENCES } from '../recurring';
 import { SPLIT_TYPES } from '../splits';
-import { localDateSchema, paiseSchema } from './primitives';
+import { localDateSchema, paiseSchema, uuidSchema } from './primitives';
+import { allocationSchema, checkSplit, shareSchema } from './split';
 
-export const uuidSchema = z.string().refine(isUuid, 'Invalid id');
+/** What a client may send for each synced entity. The rows the server returns are in `rows.ts`. */
 
 export const ENTITY_NAMES = ['category', 'expense', 'settlement', 'budget', 'recurring'] as const;
 export type EntityName = (typeof ENTITY_NAMES)[number];
-
-/** Zero is allowed for a person who is in a split but owes nothing. */
-const allocationAmountSchema = z.number().int().min(0).max(MAX_PAISE);
-
-export const allocationSchema = z.object({
-  userId: uuidSchema,
-  amountMinor: allocationAmountSchema,
-});
-
-export const shareSchema = allocationSchema.extend({
-  /** What was entered for percent/shares splits, kept so the split can be edited again. */
-  weight: z.number().int().min(1).max(10_000).optional(),
-});
 
 export const categoryDataSchema = z.object({
   id: uuidSchema,
@@ -34,7 +19,8 @@ export const categoryDataSchema = z.object({
   archived: z.boolean(),
 });
 
-const expenseBaseSchema = z.object({
+/** An expense before the "does it add up" check; the row schema builds on it too. */
+export const expenseBaseSchema = z.object({
   id: uuidSchema,
   groupId: uuidSchema,
   occurredOn: localDateSchema,
@@ -45,38 +31,6 @@ const expenseBaseSchema = z.object({
   payers: z.array(allocationSchema).min(1).max(MAX_GROUP_MEMBERS),
   shares: z.array(shareSchema).min(1).max(MAX_GROUP_MEMBERS),
 });
-
-const sum = (items: readonly { amountMinor: number }[]) =>
-  items.reduce((total, item) => total + item.amountMinor, 0);
-const hasDuplicates = (items: readonly { userId: string }[]) =>
-  new Set(items.map((item) => item.userId)).size !== items.length;
-
-/** The paise must add up on both sides and nobody may be listed twice. */
-function checkSplit(
-  split: {
-    amountMinor: number;
-    payers: readonly Allocation[];
-    shares: readonly Allocation[];
-  },
-  ctx: z.RefinementCtx,
-) {
-  if (sum(split.payers) !== split.amountMinor) {
-    ctx.addIssue({
-      code: 'custom',
-      path: ['payers'],
-      message: 'Payments must add up to the total',
-    });
-  }
-  if (sum(split.shares) !== split.amountMinor) {
-    ctx.addIssue({ code: 'custom', path: ['shares'], message: 'Shares must add up to the total' });
-  }
-  if (hasDuplicates(split.payers)) {
-    ctx.addIssue({ code: 'custom', path: ['payers'], message: 'A person is listed twice' });
-  }
-  if (hasDuplicates(split.shares)) {
-    ctx.addIssue({ code: 'custom', path: ['shares'], message: 'A person is listed twice' });
-  }
-}
 
 /** What a client may send for an expense. The paise must add up on both sides. */
 export const expenseDataSchema = expenseBaseSchema.superRefine(checkSplit);
@@ -93,7 +47,7 @@ export const budgetDataSchema = z.object({
  * An expense that repeats. It carries the same split an expense does, plus when to repeat.
  * Which occurrences have been created already is the server's to track, not the client's.
  */
-const recurringBaseSchema = expenseBaseSchema.omit({ occurredOn: true }).extend({
+export const recurringBaseSchema = expenseBaseSchema.omit({ occurredOn: true }).extend({
   frequency: z.enum(RECURRENCES),
   /** The first occurrence; it also fixes the weekday, day of the month or day of the year. */
   startOn: localDateSchema,
@@ -130,71 +84,3 @@ export type ExpenseData = z.infer<typeof expenseDataSchema>;
 export type SettlementData = z.infer<typeof settlementDataSchema>;
 export type BudgetData = z.infer<typeof budgetDataSchema>;
 export type RecurringData = z.infer<typeof recurringDataSchema>;
-
-// Rows as the server returns them: the data above plus sync metadata (and who created it).
-const syncMetaSchema = z.object({
-  version: z.number().int().min(1),
-  updatedAt: z.number().int(),
-  /** Set (epoch ms) when the row was deleted. Deleted rows are kept so deletes sync. */
-  deletedAt: z.number().int().nullable(),
-  /** Who made the latest change; the activity feed is built from this. */
-  updatedBy: uuidSchema,
-  serverSeq: z.number().int().min(1),
-});
-
-export const categoryRowSchema = categoryDataSchema.extend(syncMetaSchema.shape);
-export const expenseRowSchema = expenseBaseSchema.extend({
-  createdBy: uuidSchema,
-  ...syncMetaSchema.shape,
-});
-export const settlementRowSchema = z.object({
-  id: uuidSchema,
-  groupId: uuidSchema,
-  fromUser: uuidSchema,
-  toUser: uuidSchema,
-  amountMinor: paiseSchema,
-  occurredOn: localDateSchema,
-  note: z.string(),
-  createdBy: uuidSchema,
-  ...syncMetaSchema.shape,
-});
-
-export const budgetRowSchema = budgetDataSchema.extend(syncMetaSchema.shape);
-export const recurringRowSchema = recurringBaseSchema.extend({
-  createdBy: uuidSchema,
-  /** The last occurrence the server turned into an expense. */
-  lastGeneratedOn: localDateSchema.nullable(),
-  ...syncMetaSchema.shape,
-});
-
-export const groupRowSchema = z.object({
-  id: uuidSchema,
-  name: z.string(),
-  isPersonal: z.boolean(),
-  createdBy: uuidSchema,
-  createdAt: z.number().int(),
-  version: z.number().int().min(1),
-  serverSeq: z.number().int().min(1),
-});
-
-export const memberRowSchema = z.object({
-  groupId: uuidSchema,
-  userId: uuidSchema,
-  role: z.enum(['owner', 'member']),
-  joinedAt: z.number().int(),
-  /** Set when the person left or was removed. */
-  removedAt: z.number().int().nullable(),
-  displayName: z.string(),
-  avatarUrl: z.string().nullable(),
-  /** Someone the owner added by name who doesn't use the app (they can't sign in). */
-  isPlaceholder: z.boolean().default(false),
-  serverSeq: z.number().int().min(1),
-});
-
-export type CategoryRow = z.infer<typeof categoryRowSchema>;
-export type ExpenseRow = z.infer<typeof expenseRowSchema>;
-export type SettlementRow = z.infer<typeof settlementRowSchema>;
-export type BudgetRow = z.infer<typeof budgetRowSchema>;
-export type RecurringRow = z.infer<typeof recurringRowSchema>;
-export type GroupRow = z.infer<typeof groupRowSchema>;
-export type MemberRow = z.infer<typeof memberRowSchema>;

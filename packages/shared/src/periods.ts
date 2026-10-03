@@ -1,4 +1,4 @@
-import { addMonths, dateInMonth, monthKey } from './dates';
+import { addMonths, dateInMonth, monthKey } from './months';
 
 /**
  * Reporting periods. A "month" normally starts on the 1st, but people who live on a salary

@@ -6,7 +6,8 @@ import {
   recurringDataSchema,
   settlementDataSchema,
 } from '../../src/schemas/entities';
-import { pullQuerySchema, pushRequestSchema } from '../../src/schemas/sync';
+import { pushRequestSchema } from '../../src/schemas/mutations';
+import { pullQuerySchema } from '../../src/schemas/sync';
 
 const [a, b, group, category] = [uuidv7(), uuidv7(), uuidv7(), uuidv7()];
 

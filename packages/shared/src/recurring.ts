@@ -1,5 +1,6 @@
 import { sha256Hex } from './crypto';
-import { addDays, addMonths, dateInMonth, daysBetween } from './dates';
+import { addDays, daysBetween } from './dates';
+import { addMonths, dateInMonth } from './months';
 
 /**
  * Recurring expenses: a rule says "this, every week / month / year, from this date". The

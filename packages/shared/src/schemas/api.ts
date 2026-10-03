@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DISPLAY_NAME_MAX, GROUP_NAME_MAX } from '../limits';
-import { uuidSchema } from './entities';
+import { uuidSchema } from './primitives';
 
 export const userSchema = z.object({
   id: uuidSchema,

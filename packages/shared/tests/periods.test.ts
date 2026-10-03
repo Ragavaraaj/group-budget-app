@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { addDays, daysBetween, daysInMonth, toIndiaDate } from '../src/dates';
+import { addDays, daysBetween, toIndiaDate } from '../src/dates';
+import { daysInMonth } from '../src/months';
 import {
   fiscalYearLabel,
   fiscalYearOf,
