@@ -78,39 +78,31 @@ test.describe('settings', () => {
     await expect(page.getByText('Unreachable', { exact: true })).toBeVisible();
   });
 
-  test('shows which version of the app is running, and says so when the server has a newer one', async ({
+  test('shows which build of the app is running, even when the server cannot be reached', async ({
     page,
   }) => {
     await page.goto('/login');
-    await devSignIn(page, uniqueEmail('app-version'));
-    const reportVersion = async (version: string) => {
-      await page.unroute('**/api/healthz');
-      await page.route('**/api/healthz', (route) =>
-        route.fulfill({
-          json: { status: 'ok', db: 'ok', version, time: new Date().toISOString() },
-        }),
-      );
-      await page.goto('/settings');
-    };
-    const line = page.getByText(/^app (dev|[0-9a-f]{7})$/);
-    const older = page.getByText('This app is older than the server.');
+    await devSignIn(page, uniqueEmail('app-build'));
+    await page.goto('/settings');
 
-    await reportVersion('dev');
+    // The id is the hash in the name of the entry file this page was loaded with.
+    const entry = await page.evaluate(
+      () =>
+        Array.from(document.scripts, (script) => script.src).find((src) =>
+          /\/assets\/index-/.test(src),
+        ) ?? '',
+    );
+    const hash = /\/assets\/index-([A-Za-z0-9_-]+)\.js/.exec(entry)?.[1] ?? '';
+    expect(hash).toMatch(/^[A-Za-z0-9_-]{8}$/);
+    const line = page.getByText(`app ${hash}`, { exact: true });
     await expect(line).toBeVisible();
-    // The whole version is in the tooltip; "dev" for a local build, a commit for a deployed one.
-    const running = (await line.getAttribute('title')) ?? '';
-    expect(running).toMatch(/^(dev|[0-9a-f]{7,40})$/);
-    await expect(older).toBeHidden();
+    await expect(line).toHaveAttribute('title', hash);
+    await expect(page.getByText('A newer version of the app is ready.')).toBeHidden();
 
-    // The server runs the very same version: nothing to say.
-    await reportVersion(running);
+    // It is the app's own: it does not depend on, or wait for, the server.
+    await page.route('**/api/healthz', (route) => route.abort());
+    await page.reload();
+    await expect(page.getByText('Unreachable', { exact: true })).toBeVisible();
     await expect(line).toBeVisible();
-    await expect(older).toBeHidden();
-
-    // The server runs another commit. A real build is then the old one; a local build never says so.
-    await reportVersion('f'.repeat(40));
-    await expect(line).toBeVisible();
-    if (running === 'dev') await expect(older).toBeHidden();
-    else await expect(older).toBeVisible();
   });
 });

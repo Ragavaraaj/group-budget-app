@@ -1,15 +1,17 @@
+import { useMemo, useSyncExternalStore } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { runningBuildId } from '@/pwa/build-id';
+import { updateReady } from '@/pwa/update-state';
 import { useHealth } from './use-health';
-
-/** Both are commits (a local or test build says "dev"), and they differ: this app is the old one. */
-function isOutOfDate(app: string, server: string): boolean {
-  return app !== 'dev' && server !== 'dev' && app !== server;
-}
 
 export function ServerStatusCard() {
   const state = useHealth();
+  // Which build of the app this is. Shown whatever the server says: when it can't be reached is
+  // when someone most needs to know which version they are running.
+  const buildId = useMemo(() => runningBuildId(), []);
+  const newerReady = useSyncExternalStore(updateReady.subscribe, updateReady.getSnapshot);
 
   return (
     <Card>
@@ -30,21 +32,6 @@ export function ServerStatusCard() {
             </span>
           </div>
         )}
-        {state.kind === 'online' && (
-          <>
-            <p
-              className="text-muted-foreground mt-1 min-w-0 truncate text-xs"
-              title={__APP_VERSION__}
-            >
-              app {__APP_VERSION__.slice(0, 7)}
-            </p>
-            {isOutOfDate(__APP_VERSION__, state.health.version) && (
-              <p className="text-destructive mt-1 text-xs">
-                This app is older than the server. Close it and open it again to update.
-              </p>
-            )}
-          </>
-        )}
         {state.kind === 'unreachable' && state.deviceOffline && (
           <div className="flex items-center gap-2">
             <Badge variant="secondary">Offline</Badge>
@@ -56,6 +43,14 @@ export function ServerStatusCard() {
             <Badge variant="destructive">Unreachable</Badge>
             <span className="text-muted-foreground text-sm">The server isn't responding</span>
           </div>
+        )}
+        <p className="text-muted-foreground mt-1 min-w-0 truncate text-xs" title={buildId}>
+          app {buildId}
+        </p>
+        {newerReady && (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            A newer version of the app is ready. Close the app and open it again to update.
+          </p>
         )}
       </CardContent>
     </Card>

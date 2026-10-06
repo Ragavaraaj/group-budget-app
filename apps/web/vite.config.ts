@@ -11,15 +11,13 @@ import { VitePWA } from 'vite-plugin-pwa';
 const api = { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: false, ws: true } };
 
 export default defineConfig({
-  // The commit this build was made from (CI sets GITHUB_SHA), so Settings can tell which version
-  // is running here, as against which one the server runs. "dev" for any other build.
-  define: { __APP_VERSION__: JSON.stringify(process.env.GITHUB_SHA ?? 'dev') },
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
-      // A new version found right after the app opens is applied at once; any other waits for the
-      // person to tap Reload, so we never swap code mid-entry (src/pwa/update-policy.ts).
+      // A new version found right after the app opens (nothing entered, no other tab) is applied at
+      // once; any other waits for the person to tap Reload, so we never swap code mid-entry
+      // (src/pwa/update-policy.ts).
       registerType: 'prompt',
       injectRegister: false, // registered explicitly in src/pwa/register.ts
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
