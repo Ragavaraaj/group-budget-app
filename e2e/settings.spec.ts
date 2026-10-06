@@ -77,4 +77,40 @@ test.describe('settings', () => {
     await page.reload();
     await expect(page.getByText('Unreachable', { exact: true })).toBeVisible();
   });
+
+  test('shows which version of the app is running, and says so when the server has a newer one', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('app-version'));
+    const reportVersion = async (version: string) => {
+      await page.unroute('**/api/healthz');
+      await page.route('**/api/healthz', (route) =>
+        route.fulfill({
+          json: { status: 'ok', db: 'ok', version, time: new Date().toISOString() },
+        }),
+      );
+      await page.goto('/settings');
+    };
+    const line = page.getByText(/^app (dev|[0-9a-f]{7})$/);
+    const older = page.getByText('This app is older than the server.');
+
+    await reportVersion('dev');
+    await expect(line).toBeVisible();
+    // The whole version is in the tooltip; "dev" for a local build, a commit for a deployed one.
+    const running = (await line.getAttribute('title')) ?? '';
+    expect(running).toMatch(/^(dev|[0-9a-f]{7,40})$/);
+    await expect(older).toBeHidden();
+
+    // The server runs the very same version: nothing to say.
+    await reportVersion(running);
+    await expect(line).toBeVisible();
+    await expect(older).toBeHidden();
+
+    // The server runs another commit. A real build is then the old one; a local build never says so.
+    await reportVersion('f'.repeat(40));
+    await expect(line).toBeVisible();
+    if (running === 'dev') await expect(older).toBeHidden();
+    else await expect(older).toBeVisible();
+  });
 });

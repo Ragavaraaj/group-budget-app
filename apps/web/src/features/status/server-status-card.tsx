@@ -3,6 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useHealth } from './use-health';
 
+/** Both are commits (a local or test build says "dev"), and they differ: this app is the old one. */
+function isOutOfDate(app: string, server: string): boolean {
+  return app !== 'dev' && server !== 'dev' && app !== server;
+}
+
 export function ServerStatusCard() {
   const state = useHealth();
 
@@ -24,6 +29,21 @@ export function ServerStatusCard() {
               version {state.health.version}
             </span>
           </div>
+        )}
+        {state.kind === 'online' && (
+          <>
+            <p
+              className="text-muted-foreground mt-1 min-w-0 truncate text-xs"
+              title={__APP_VERSION__}
+            >
+              app {__APP_VERSION__.slice(0, 7)}
+            </p>
+            {isOutOfDate(__APP_VERSION__, state.health.version) && (
+              <p className="text-destructive mt-1 text-xs">
+                This app is older than the server. Close it and open it again to update.
+              </p>
+            )}
+          </>
         )}
         {state.kind === 'unreachable' && state.deviceOffline && (
           <div className="flex items-center gap-2">
