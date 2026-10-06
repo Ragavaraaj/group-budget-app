@@ -14,9 +14,10 @@ export const updateReady = {
     };
   },
   getSnapshot: (): boolean => ready,
-  set(value: boolean): void {
-    if (ready === value) return;
-    ready = value;
+  /** A newer version is waiting. It stays so until the page reloads onto it. */
+  markReady(): void {
+    if (ready) return;
+    ready = true;
     for (const listener of listeners) listener();
   },
 };

@@ -1,24 +1,39 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ACTIVATION_GRACE_MS, handleUpdateFound, type UpdateFound } from './startup-update';
+import {
+  ACTIVATION_GRACE_MS,
+  handleUpdateFound,
+  type LastAutoUpdate,
+  type UpdateFound,
+} from './startup-update';
+import { AUTO_UPDATE_COOLDOWN_MS } from './update-policy';
 
+const NOW = 1_000_000_000;
 let offered: number;
 let activated: number;
 
-/** A browser that has just opened, quiet, with one tab: the case that is applied. */
+/** A store that remembers what was written, and the order things happened in. */
+function store(initial: number | null = null, events: string[] = []) {
+  let at = initial;
+  const writes: number[] = [];
+  const lastAutoUpdate: LastAutoUpdate = {
+    read: () => at,
+    write: (value) => {
+      writes.push(value);
+      events.push('write');
+      at = value;
+      return true;
+    },
+  };
+  return { lastAutoUpdate, writes };
+}
+
+/** A browser that has just opened and is quiet: the case that is applied. */
 function quiet(overrides: Partial<UpdateFound> = {}): UpdateFound {
-  let stored: number | null = null;
   return {
     openedForMs: () => 1_000,
-    now: () => 1_000_000,
-    lastAutoUpdate: {
-      read: () => stored,
-      write: (at) => {
-        stored = at;
-        return true;
-      },
-    },
+    now: () => NOW,
+    lastAutoUpdate: store().lastAutoUpdate,
     userHasInteracted: () => false,
-    otherTabsOpen: async () => false,
     signInPending: () => false,
     activate: async () => {
       activated++;
@@ -39,77 +54,103 @@ afterEach(() => vi.useRealTimers());
 
 describe('a new version is waiting', () => {
   it('is applied when the app has just opened, and nothing is shown', async () => {
-    expect(await handleUpdateFound(quiet())).toBe('activating');
+    await handleUpdateFound(quiet());
     expect(activated).toBe(1);
     // The page reloads once the new version takes over, so nothing else happens.
     expect(offered).toBe(0);
   });
 
-  it('writes down when it was applied, before applying it', async () => {
-    const writes: number[] = [];
-    const deps = quiet({
-      lastAutoUpdate: {
-        read: () => null,
-        write: (at) => {
-          writes.push(at);
-          return true;
+  it('writes down when it was applied, and does that before applying it', async () => {
+    const events: string[] = [];
+    const { lastAutoUpdate, writes } = store(null, events);
+    await handleUpdateFound(
+      quiet({
+        lastAutoUpdate,
+        activate: async () => {
+          events.push('activate');
         },
-      },
-      activate: async () => {
-        expect(writes).toEqual([1_000_000]); // already written by the time it is asked to apply
-      },
-    });
-    await handleUpdateFound(deps);
-    expect(writes).toEqual([1_000_000]);
+      }),
+    );
+    expect(writes).toEqual([NOW]);
+    expect(events).toEqual(['write', 'activate']);
   });
 
   const offeredWhen: [string, Partial<UpdateFound>][] = [
     ['it was found late', { openedForMs: () => 60_000 }],
     ['the person has already touched something', { userHasInteracted: () => true }],
     ['a sign-in is waiting to be collected', { signInPending: () => true }],
-    ['another tab is open', { otherTabsOpen: async () => true }],
-    ['the browser cannot say if another tab is open', { otherTabsOpen: async () => null }],
   ];
   it.each(offeredWhen)('is offered, not applied, when %s', async (_why, change) => {
-    expect(await handleUpdateFound(quiet(change))).toBe('offered');
+    const { lastAutoUpdate, writes } = store();
+    await handleUpdateFound(quiet({ lastAutoUpdate, ...change }));
+    expect(activated).toBe(0);
+    expect(offered).toBe(1);
+    expect(writes).toEqual([]); // nothing was applied, so nothing is written down
+  });
+});
+
+describe('the guard against reloading in a loop', () => {
+  it('offers, not applies, right after another automatic update', async () => {
+    const { lastAutoUpdate, writes } = store(NOW - 5_000);
+    await handleUpdateFound(quiet({ lastAutoUpdate }));
+    expect(activated).toBe(0);
+    expect(offered).toBe(1);
+    expect(writes).toEqual([]);
+  });
+
+  it('offers at exactly one cooldown after the last one, and applies a moment later', async () => {
+    const atCooldown = store(NOW - AUTO_UPDATE_COOLDOWN_MS);
+    await handleUpdateFound(quiet({ lastAutoUpdate: atCooldown.lastAutoUpdate }));
+    expect(activated).toBe(0);
+    expect(offered).toBe(1);
+
+    const justAfter = store(NOW - AUTO_UPDATE_COOLDOWN_MS - 1);
+    await handleUpdateFound(quiet({ lastAutoUpdate: justAfter.lastAutoUpdate }));
+    expect(activated).toBe(1);
+    expect(justAfter.writes).toEqual([NOW]); // and it writes the new time down
+  });
+
+  it('applies when the last one was long ago (the gap is now minus then, not the reverse)', async () => {
+    const { lastAutoUpdate } = store(NOW - 2 * 60 * 60_000);
+    await handleUpdateFound(quiet({ lastAutoUpdate }));
+    expect(activated).toBe(1);
+    expect(offered).toBe(0);
+  });
+
+  it('applies when the stored time is in the future, as when the clock was set back', async () => {
+    const { lastAutoUpdate } = store(NOW + 3 * 60 * 60_000);
+    await handleUpdateFound(quiet({ lastAutoUpdate }));
+    expect(activated).toBe(1);
+  });
+
+  it('offers, not applies, when the time of this update cannot be written down', async () => {
+    await handleUpdateFound(quiet({ lastAutoUpdate: { read: () => null, write: () => false } }));
     expect(activated).toBe(0);
     expect(offered).toBe(1);
   });
 
-  it('is offered, not applied, right after another automatic update (no reload loop)', async () => {
-    const deps = quiet({
-      lastAutoUpdate: { read: () => 1_000_000 - 5_000, write: () => true },
-    });
-    expect(await handleUpdateFound(deps)).toBe('offered');
+  it('offers if anything it checks goes wrong, rather than losing the update', async () => {
+    await handleUpdateFound(
+      quiet({
+        signInPending: () => {
+          throw new Error('storage is broken');
+        },
+      }),
+    );
     expect(activated).toBe(0);
-  });
-
-  it('is offered, not applied, when the time of this update cannot be written down', async () => {
-    const deps = quiet({ lastAutoUpdate: { read: () => null, write: () => false } });
-    expect(await handleUpdateFound(deps)).toBe('offered');
-    expect(activated).toBe(0);
-    expect(offered).toBe(1);
-  });
-
-  it('is offered if anything it checks goes wrong, rather than being lost', async () => {
-    const deps = quiet({
-      otherTabsOpen: async () => {
-        throw new Error('locks are broken');
-      },
-    });
-    expect(await handleUpdateFound(deps)).toBe('offered');
     expect(offered).toBe(1);
   });
 });
 
 describe('when applying does not work', () => {
   it('offers it at once if asking the new version to take over fails', async () => {
-    const deps = quiet({
-      activate: async () => {
-        throw new Error('no worker');
-      },
-    });
-    await handleUpdateFound(deps);
+    await handleUpdateFound(
+      quiet({
+        activate: async () => {
+          throw new Error('no worker');
+        },
+      }),
+    );
     expect(offered).toBe(1);
     // And not a second time when the wait for the reload runs out.
     await vi.advanceTimersByTimeAsync(ACTIVATION_GRACE_MS * 2);

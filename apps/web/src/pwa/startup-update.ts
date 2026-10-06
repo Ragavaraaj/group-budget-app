@@ -19,7 +19,6 @@ export interface UpdateFound {
   now(): number;
   lastAutoUpdate: LastAutoUpdate;
   userHasInteracted(): boolean;
-  otherTabsOpen(): Promise<boolean | null>;
   signInPending(): boolean;
   /** Asks the waiting version to take over; the page reloads by itself once it has. */
   activate(): Promise<unknown> | undefined;
@@ -32,25 +31,23 @@ export interface UpdateFound {
  * Whatever goes wrong, the person ends up either on the new version or being offered it: they are
  * never left on old code with nothing said.
  */
-export async function handleUpdateFound(deps: UpdateFound): Promise<'activating' | 'offered'> {
+export async function handleUpdateFound(deps: UpdateFound): Promise<void> {
   try {
-    const otherTabsOpen = await deps.otherTabsOpen();
     const last = deps.lastAutoUpdate.read();
     const apply = shouldApplyAtStartup({
       openedForMs: deps.openedForMs(),
       sinceLastAutoUpdateMs: last === null ? null : deps.now() - last,
       userHasInteracted: deps.userHasInteracted(),
-      otherTabsOpen,
       signInPending: deps.signInPending(),
     });
     // Written down before activating: if it can't be, nothing would stop a reload loop.
     if (!apply || !deps.lastAutoUpdate.write(deps.now())) {
       deps.offer();
-      return 'offered';
+      return;
     }
   } catch {
     deps.offer();
-    return 'offered';
+    return;
   }
 
   // Asking says nothing about whether it worked: it does not report success, and when the new
@@ -62,5 +59,4 @@ export async function handleUpdateFound(deps: UpdateFound): Promise<'activating'
     clearTimeout(giveUp);
     deps.offer();
   }
-  return 'activating';
 }

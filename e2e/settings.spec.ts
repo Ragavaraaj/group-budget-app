@@ -94,7 +94,7 @@ test.describe('settings', () => {
     );
     const hash = /\/assets\/index-([A-Za-z0-9_-]+)\.js/.exec(entry)?.[1] ?? '';
     expect(hash).toMatch(/^[A-Za-z0-9_-]{8}$/);
-    const line = page.getByText(`app ${hash}`, { exact: true });
+    const line = page.getByText(`app build ${hash}`, { exact: true });
     await expect(line).toBeVisible();
     await expect(line).toHaveAttribute('title', hash);
     await expect(page.getByText('A newer version of the app is ready.')).toBeHidden();

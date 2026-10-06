@@ -1,8 +1,10 @@
 /**
  * Which build of the app this is, read from its own entry file. The build names that file after
- * its content (`/assets/index-<hash>.js`), so the name changes exactly when the code does, and a
+ * its content (`/assets/index-<hash>.js`), so the name changes whenever the JavaScript does, and a
  * deploy that changes nothing in the app leaves it, and so the service worker, untouched. (A
- * commit id baked into the code would change both on every deploy.)
+ * commit id baked into the code would change both on every deploy.) It names the code only: a
+ * deploy that touches just the styles, an icon or the page shell updates the app without
+ * changing it.
  */
 const ENTRY_FILE = /\/assets\/index-([A-Za-z0-9_-]+)\.js(?:[?#].*)?$/;
 
