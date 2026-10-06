@@ -9,11 +9,24 @@ import type { SyncApi } from './api';
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error' | 'signed_out';
 
+/** Which part of a sync went wrong, in words a person can read out. */
+export type SyncStep = 'sending changes' | 'receiving changes' | 'loading a group';
+
+/** Why the last sync failed. Without it "Sync problem" can't be told apart on a phone. */
+export interface SyncFailure {
+  step: SyncStep;
+  /** The HTTP status and the server's error code, or the error's name and message. */
+  detail: string;
+  at: number;
+}
+
 export interface SyncStatus {
   state: SyncState;
   lastSyncedAt: number | null;
   /** The live connection is up, so changes arrive as they happen. */
   live: boolean;
+  /** Set while `state` is `error`; cleared by the next sync that works. */
+  failure: SyncFailure | null;
 }
 
 /** Things the UI wants to tell the person about; the engine itself shows nothing. */
@@ -63,7 +76,7 @@ export class SyncEngine {
   private readonly pollMs: number;
   private readonly maxPollMs: number;
 
-  private status: SyncStatus = { state: 'idle', lastSyncedAt: null, live: false };
+  private status: SyncStatus = { state: 'idle', lastSyncedAt: null, live: false, failure: null };
   private readonly subscribers = new Set<() => void>();
 
   private running: Promise<void> | null = null;
@@ -213,19 +226,48 @@ export class SyncEngine {
     this.setStatus({ state: 'syncing' });
 
     let changed = false;
+    let step: SyncStep = 'sending changes';
     try {
-      const pushed = await this.flush();
+      let pushed = false;
+      let pushFailure: unknown = null;
+      try {
+        pushed = await this.flush();
+      } catch (error) {
+        // A change the server can't take must not keep its news off this device: a group the
+        // person has just joined arrives by pulling, and would never show up while one stuck
+        // change sat first in the queue. The pull leaves rows with unsent edits alone, so going
+        // on is safe. If the session ended or the network is gone the pull fails the same way, so
+        // those stop here.
+        if (error instanceof NetworkError || (error instanceof ApiError && error.status === 401)) {
+          throw error;
+        }
+        pushFailure = error;
+      }
+      step = 'receiving changes';
       const pulled = await this.pull();
+      step = 'loading a group';
       const backfilled = await this.runBackfills();
       changed = pushed || pulled || backfilled;
-      this.setStatus({ state: 'idle', lastSyncedAt: Date.now() });
+      if (pushFailure) {
+        step = 'sending changes';
+        throw pushFailure;
+      }
+      this.setStatus({ state: 'idle', lastSyncedAt: Date.now(), failure: null });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         // The session ended. Keep working from local data; the queue waits for a new sign-in.
         this.setStatus({ state: 'signed_out' });
         return;
       }
-      this.setStatus({ state: error instanceof NetworkError ? 'offline' : 'error' });
+      if (error instanceof NetworkError) {
+        this.setStatus({ state: 'offline' });
+      } else {
+        console.error(`Sync failed while ${step}`, error);
+        this.setStatus({
+          state: 'error',
+          failure: { step, detail: describeError(error), at: Date.now() },
+        });
+      }
     }
     this.scheduleNext(changed);
   }
@@ -409,6 +451,15 @@ export class SyncEngine {
     }
     return changed;
   }
+}
+
+/** Short and safe to show: a status and code for the server's answers, a name and message otherwise. */
+export function describeError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.code ? `HTTP ${error.status} (${error.code})` : `HTTP ${error.status}`;
+  }
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
 }
 
 function toMutation(entry: OutboxEntry): Mutation {

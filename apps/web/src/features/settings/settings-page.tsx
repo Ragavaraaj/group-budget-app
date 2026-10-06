@@ -135,7 +135,7 @@ export function SettingsPage() {
 function SyncCard() {
   const db = useDb();
   const engine = useEngine();
-  const { state, lastSyncedAt, live } = useSyncStatus();
+  const { state, lastSyncedAt, live, failure } = useSyncStatus();
   const waiting = useLiveQuery(() => db.outbox.count(), [db]) ?? 0;
   const oldest = useLiveQuery(
     async () => (await db.outbox.orderBy('seq').first())?.createdAt,
@@ -158,13 +158,21 @@ function SyncCard() {
             : state === 'signed_out'
               ? 'Your session ended. Sign in again to sync.'
               : state === 'error'
-                ? 'The server couldn’t be reached properly. Trying again shortly.'
+                ? 'Something went wrong while syncing. Trying again shortly.'
                 : lastSyncedAt
                   ? `Last synced at ${new Date(lastSyncedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}.`
                   : 'Syncing…'}
           {waiting > 0 ? ` ${waiting} change${waiting === 1 ? '' : 's'} waiting to be sent.` : ''}
           {live ? ' Live: changes from other people arrive as they happen.' : ''}
         </p>
+        {state === 'error' && failure ? (
+          <p
+            data-testid="sync-failure"
+            className="bg-muted text-muted-foreground rounded-lg p-2 text-xs [overflow-wrap:anywhere]"
+          >
+            While {failure.step}: {failure.detail}
+          </p>
+        ) : null}
         {stale ? (
           <p role="alert" className="text-destructive">
             Some changes have been waiting for over a day. Open the app with a connection to send

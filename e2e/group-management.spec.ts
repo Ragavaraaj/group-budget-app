@@ -475,6 +475,40 @@ test.describe('the join page', () => {
     await bob.context.close();
   });
 
+  test('says so when the group has not reached the phone yet, and fetches it on "Try again"', async ({
+    page,
+    browser,
+  }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('alice'), 'Alice');
+    await createGroup(page, 'Slow to arrive');
+    const link = await createInviteLink(page);
+
+    const bob = await newPerson(browser, uniqueEmail('bob'), 'Bob');
+    let accepted = 0;
+    bob.page.on('request', (request) => {
+      if (request.url().includes('/api/invites/accept')) accepted++;
+    });
+    await bob.page.goto(new URL(link).pathname);
+    await expect(bob.page.getByText(/invited you to/)).toBeVisible();
+
+    // The server takes Bob in, but then cannot hand the group over.
+    await bob.page.route('**/api/sync/pull*', (route) =>
+      route.fulfill({ status: 500, json: { error: 'internal_error' } }),
+    );
+    await bob.page.getByRole('button', { name: 'Join group' }).click();
+    await expect(bob.page.getByRole('alert')).toContainText(
+      'You’re in the group, but it hasn’t reached this phone yet.',
+    );
+    await expect(bob.page).toHaveURL(/\/join\//); // not an empty group screen
+
+    await bob.page.unroute('**/api/sync/pull*');
+    await bob.page.getByRole('button', { name: 'Try again' }).click();
+    await expect(bob.page.getByRole('heading', { name: 'Slow to arrive' })).toBeVisible();
+    expect(accepted, 'the invite is used once, not again on "Try again"').toBe(1);
+    await bob.context.close();
+  });
+
   test('says so when the invite cannot be checked', async ({ page }) => {
     await page.route('**/api/invites/preview*', (route) => route.abort());
     await page.goto('/join/a-token-that-is-long-enough-0123456789');

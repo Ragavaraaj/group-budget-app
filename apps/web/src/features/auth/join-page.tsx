@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { z } from 'zod';
 import { useAuth } from '@/auth/auth-context';
-import { SignedInProvider, useEngine } from '@/auth/sync-context';
+import { SignedInProvider, useDb, useEngine } from '@/auth/sync-context';
 import { Spinner, SplashScreen } from '@/components/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -88,30 +88,53 @@ export function JoinPage() {
 
 function AcceptInvite({ token }: { token: string }) {
   const engine = useEngine();
+  const db = useDb();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the server has taken us in. The invite may be used up by then, so a second try must
+  // only fetch the group, never accept again.
+  const [joinedId, setJoinedId] = useState<string | null>(null);
 
   const join = async () => {
     setBusy(true);
     setError(null);
-    try {
-      const { groupId } = await apiSend(
-        'POST',
-        '/api/invites/accept',
-        { token },
-        groupResponseSchema,
-      );
-      await engine.trigger(); // pull the group (and its history) before showing it
-      navigate(`/groups/${groupId}`, { replace: true });
-    } catch (e) {
-      setBusy(false);
-      setError(
-        e instanceof ApiError
-          ? (ACCEPT_ERRORS[e.code ?? ''] ?? 'Couldn’t join the group. Please try again.')
-          : 'You seem to be offline. Connect to the internet to join.',
-      );
+    let groupId = joinedId;
+    if (groupId === null) {
+      try {
+        ({ groupId } = await apiSend(
+          'POST',
+          '/api/invites/accept',
+          { token },
+          groupResponseSchema,
+        ));
+        setJoinedId(groupId);
+      } catch (e) {
+        setBusy(false);
+        setError(
+          e instanceof ApiError
+            ? (ACCEPT_ERRORS[e.code ?? ''] ?? 'Couldn’t join the group. Please try again.')
+            : 'You seem to be offline. Connect to the internet to join.',
+        );
+        return;
+      }
     }
+
+    // `trigger` never throws: a failed sync only shows in the status. So look for the group
+    // itself rather than assuming it came, or the person lands on a screen for a group their
+    // phone doesn't have.
+    const arrived = await engine
+      .trigger() // pull the group (and its history) before showing it
+      .then(() => db.groups.get(groupId))
+      .catch(() => undefined);
+    if (arrived) {
+      navigate(`/groups/${groupId}`, { replace: true });
+      return;
+    }
+    setBusy(false);
+    setError(
+      'You’re in the group, but it hasn’t reached this phone yet. Check your connection, then try again. Settings shows what went wrong.',
+    );
   };
 
   return (
@@ -123,7 +146,7 @@ function AcceptInvite({ token }: { token: string }) {
       ) : null}
       <Button size="lg" className="w-full" disabled={busy} onClick={join}>
         {busy ? <Spinner /> : null}
-        Join group
+        {joinedId ? 'Try again' : 'Join group'}
       </Button>
     </div>
   );

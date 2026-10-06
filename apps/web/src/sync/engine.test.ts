@@ -180,6 +180,79 @@ describe('pushing', () => {
       expect(await db.outbox.count()).toBe(2); // waits for a new sign-in
     });
 
+    it('says where it went wrong and why, and forgets it after a sync that works', async () => {
+      await queueExpenses(1);
+      const api = new FakeApi(() => Promise.reject(httpError(503)));
+      const engine = engineFor(api);
+      await engine.trigger();
+      expect(engine.getSnapshot().failure).toMatchObject({
+        step: 'sending changes',
+        detail: 'HTTP 503',
+      });
+
+      api.onPush = (ms) =>
+        ms.map((m) => ({ mutationId: m.mutationId, status: 'applied' as const }));
+      await engine.trigger();
+      expect(engine.getSnapshot().state).toBe('idle');
+      expect(engine.getSnapshot().failure).toBeNull();
+
+      api.onPull = () => {
+        throw new TypeError('undefined is not a function');
+      };
+      await engine.trigger();
+      expect(engine.getSnapshot().failure).toMatchObject({
+        step: 'receiving changes',
+        detail: 'TypeError: undefined is not a function',
+      });
+    });
+
+    it('names the step that failed when a group cannot be loaded', async () => {
+      await setMeta(db, `backfill:${G}`, 0);
+      const engine = engineFor(
+        new FakeApi(undefined, (q) => {
+          if (q.groupId) throw httpError(500);
+          return emptyPull();
+        }),
+      );
+      await engine.trigger();
+      expect(engine.getSnapshot().failure?.step).toBe('loading a group');
+      expect(await db.meta.where('key').startsWith('backfill:').count()).toBe(1); // tried again later
+    });
+
+    it('still pulls, and loads a group just joined, when the push fails', async () => {
+      await setMeta(db, 'cursor', 500);
+      await queueExpenses(1);
+      const api = new FakeApi(
+        () => Promise.reject(httpError(500)),
+        (q) =>
+          q.groupId
+            ? emptyPull({ cursor: 3, groups: [groupRow(G, ME)] })
+            : emptyPull({ cursor: 520, members: [memberRow(G, ME, { serverSeq: 510 })] }),
+      );
+      const engine = engineFor(api);
+      await engine.trigger();
+
+      expect(await db.groups.get(G)).toBeDefined();
+      expect(await getMeta(db, 'cursor')).toBe(520);
+      expect(await db.outbox.count()).toBe(1); // still waiting to be sent
+      // The failed push is still reported: nothing is hidden because the rest worked.
+      expect(engine.getSnapshot().state).toBe('error');
+      expect(engine.getSnapshot().failure).toMatchObject({ step: 'sending changes' });
+    });
+
+    it('does not pull on after the session ended or the network went', async () => {
+      await queueExpenses(1);
+      const ended = new FakeApi(() => Promise.reject(httpError(401)));
+      await engineFor(ended).trigger();
+      expect(ended.pulls).toHaveLength(0);
+
+      const gone = new FakeApi(() => {
+        throw new NetworkError();
+      });
+      await engineFor(gone).trigger();
+      expect(gone.pulls).toHaveLength(0);
+    });
+
     it('sends nothing twice if a push succeeds but the pull then fails', async () => {
       await queueExpenses(1);
       const api = new FakeApi(undefined, () => {
