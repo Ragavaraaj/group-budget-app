@@ -120,20 +120,23 @@ function AcceptInvite({ token }: { token: string }) {
       }
     }
 
-    // `trigger` never throws: a failed sync only shows in the status. So look for the group
-    // itself rather than assuming it came, or the person lands on a screen for a group their
-    // phone doesn't have.
+    // `trigger` never throws: a failed sync only shows in the status. So check that the group
+    // is here, and that the sync which fetched it finished (the group's row can be written
+    // before a later page of the pull, or its history, fails). Otherwise the person lands on a
+    // group that is empty or only partly there.
     const arrived = await engine
       .trigger() // pull the group (and its history) before showing it
-      .then(() => db.groups.get(groupId))
-      .catch(() => undefined);
+      .then(
+        async () => engine.getSnapshot().caughtUp && (await db.groups.get(groupId)) !== undefined,
+      )
+      .catch(() => false);
     if (arrived) {
       navigate(`/groups/${groupId}`, { replace: true });
       return;
     }
     setBusy(false);
     setError(
-      'You’re in the group, but it hasn’t reached this phone yet. Check your connection, then try again. Settings shows what went wrong.',
+      'You’re in the group, but it hasn’t all reached this phone yet. Check your connection, then try again. It will also appear under Groups once syncing works. Settings shows what went wrong.',
     );
   };
 

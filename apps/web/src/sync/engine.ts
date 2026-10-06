@@ -10,14 +10,18 @@ import type { SyncApi } from './api';
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error' | 'signed_out';
 
 /** Which part of a sync went wrong, in words a person can read out. */
-export type SyncStep = 'sending changes' | 'receiving changes' | 'loading a group';
+export type SyncStep = 'sending changes' | 'receiving changes' | 'loading a group' | 'syncing';
 
-/** Why the last sync failed. Without it "Sync problem" can't be told apart on a phone. */
-export interface SyncFailure {
+interface StepDetail {
   step: SyncStep;
   /** The HTTP status and the server's error code, or the error's name and message. */
   detail: string;
-  at: number;
+}
+
+/** Why the last sync failed. Without it "Sync problem" can't be told apart on a phone. */
+export interface SyncFailure extends StepDetail {
+  /** A second step that failed in the same cycle, when the first did not stop it. */
+  also?: StepDetail;
 }
 
 export interface SyncStatus {
@@ -25,8 +29,13 @@ export interface SyncStatus {
   lastSyncedAt: number | null;
   /** The live connection is up, so changes arrive as they happen. */
   live: boolean;
-  /** Set while `state` is `error`; cleared by the next sync that works. */
+  /** Why the last sync failed. Only set while `state` is `error`. */
   failure: SyncFailure | null;
+  /**
+   * The last sync received everything the server had: every page of the pull and every group
+   * backfill. It can be true while `state` is `error`, when only sending changes failed.
+   */
+  caughtUp: boolean;
 }
 
 /** Things the UI wants to tell the person about; the engine itself shows nothing. */
@@ -76,7 +85,13 @@ export class SyncEngine {
   private readonly pollMs: number;
   private readonly maxPollMs: number;
 
-  private status: SyncStatus = { state: 'idle', lastSyncedAt: null, live: false, failure: null };
+  private status: SyncStatus = {
+    state: 'idle',
+    lastSyncedAt: null,
+    live: false,
+    failure: null,
+    caughtUp: false,
+  };
   private readonly subscribers = new Set<() => void>();
 
   private running: Promise<void> | null = null;
@@ -87,6 +102,10 @@ export class SyncEngine {
   /** True while the live connection is up: news arrives by itself, so polling is a safety net. */
   private live = false;
   private unsubscribeWrites: (() => void) | null = null;
+  /** Something was sent (and answered) in the current cycle, even if a later part failed. */
+  private sentThisCycle = false;
+  /** The failure last written to the console, so a failure that repeats is logged once. */
+  private loggedFailure: string | null = null;
 
   constructor(options: EngineOptions) {
     this.db = options.db;
@@ -109,7 +128,9 @@ export class SyncEngine {
   readonly getSnapshot = (): SyncStatus => this.status;
 
   private setStatus(patch: Partial<SyncStatus>) {
-    this.status = { ...this.status, ...patch };
+    const next = { ...this.status, ...patch };
+    // A reason belongs to the error it explains, so any other state has none.
+    this.status = next.state === 'error' ? next : { ...next, failure: null };
     for (const listener of this.subscribers) listener();
   }
 
@@ -219,57 +240,70 @@ export class SyncEngine {
   private async cycle(): Promise<void> {
     this.clearTimer();
     if (!this.env.isOnline()) {
-      this.setStatus({ state: 'offline' });
+      this.setStatus({ state: 'offline', caughtUp: false });
       this.scheduleNext(false); // the `online` event normally wakes us; this is the safety net
       return;
     }
     this.setStatus({ state: 'syncing' });
+    this.sentThisCycle = false;
 
     let changed = false;
-    let step: SyncStep = 'sending changes';
+    // A failed push, when the cycle went on to pull anyway (so it can't be lost if that fails too).
+    let held: StepFailed | null = null;
     try {
-      let pushed = false;
-      let pushFailure: unknown = null;
       try {
-        pushed = await this.flush();
+        await inStep('sending changes', () => this.flush());
       } catch (error) {
         // A change the server can't take must not keep its news off this device: a group the
         // person has just joined arrives by pulling, and would never show up while one stuck
         // change sat first in the queue. The pull leaves rows with unsent edits alone, so going
         // on is safe. If the session ended or the network is gone the pull fails the same way, so
         // those stop here.
-        if (error instanceof NetworkError || (error instanceof ApiError && error.status === 401)) {
-          throw error;
-        }
-        pushFailure = error;
+        if (!(error instanceof StepFailed) || endsCycle(error)) throw error;
+        held = error;
       }
-      step = 'receiving changes';
-      const pulled = await this.pull();
-      step = 'loading a group';
-      const backfilled = await this.runBackfills();
-      changed = pushed || pulled || backfilled;
-      if (pushFailure) {
-        step = 'sending changes';
-        throw pushFailure;
-      }
-      this.setStatus({ state: 'idle', lastSyncedAt: Date.now(), failure: null });
+      const pulled = await inStep('receiving changes', () => this.pull());
+      const backfilled = await inStep('loading a group', () => this.runBackfills());
+      changed = pulled || backfilled;
+      if (held !== null) throw held;
+      this.loggedFailure = null;
+      this.setStatus({ state: 'idle', lastSyncedAt: Date.now(), caughtUp: true });
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
+      const failed = error instanceof StepFailed ? error : new StepFailed('syncing', error);
+      // What was sent is progress even when a later chunk wasn't taken.
+      changed = changed || this.sentThisCycle;
+      if (isSessionEnd(failed.original)) {
         // The session ended. Keep working from local data; the queue waits for a new sign-in.
-        this.setStatus({ state: 'signed_out' });
+        this.setStatus({ state: 'signed_out', caughtUp: false });
         return;
       }
-      if (error instanceof NetworkError) {
-        this.setStatus({ state: 'offline' });
+      if (failed.original instanceof NetworkError) {
+        this.setStatus({ state: 'offline', caughtUp: false });
       } else {
-        console.error(`Sync failed while ${step}`, error);
-        this.setStatus({
-          state: 'error',
-          failure: { step, detail: describeError(error), at: Date.now() },
-        });
+        this.fail(held !== null && held !== failed ? [held, failed] : [failed]);
       }
     }
     this.scheduleNext(changed);
+  }
+
+  /** Records why the cycle failed: in the status, and once in the console while it keeps failing. */
+  private fail(failures: StepFailed[]): void {
+    const [first, second] = failures;
+    if (!first) return;
+    const failure: SyncFailure = {
+      step: first.step,
+      detail: describeError(first.original),
+      ...(second ? { also: { step: second.step, detail: describeError(second.original) } } : {}),
+    };
+    // Only the sending failed: the pull and the backfills ran and finished.
+    const caughtUp = first.step === 'sending changes' && second === undefined;
+    this.setStatus({ state: 'error', failure, caughtUp });
+
+    const key = JSON.stringify(failure);
+    if (key === this.loggedFailure) return; // the same failure on every retry would flood the console
+    this.loggedFailure = key;
+    for (const failed of failures)
+      console.error(`Sync failed while ${failed.step}`, failed.original);
   }
 
   /**
@@ -284,14 +318,13 @@ export class SyncEngine {
 
   // --- pushing ------------------------------------------------------------------------------
 
-  private async flush(): Promise<boolean> {
-    let sent = false;
+  private async flush(): Promise<void> {
     for (;;) {
       const entries = await this.db.outbox.orderBy('seq').limit(MAX_MUTATIONS_PER_PUSH).toArray();
-      if (entries.length === 0) return sent;
+      if (entries.length === 0) return;
       const results = await this.pushChunk(entries);
       await this.settle(entries, results);
-      sent = true;
+      this.sentThisCycle = true;
 
       // Every change should have been answered. If none was (a misbehaving server), stop here
       // rather than sending the same request forever; the next sync tries again.
@@ -453,8 +486,34 @@ export class SyncEngine {
   }
 }
 
-/** Short and safe to show: a status and code for the server's answers, a name and message otherwise. */
-export function describeError(error: unknown): string {
+/** A failure of one part of a sync, saying which part. The error itself is `original`. */
+class StepFailed extends Error {
+  constructor(
+    readonly step: SyncStep,
+    readonly original: unknown,
+  ) {
+    super(`Sync failed while ${step}`);
+    this.name = 'StepFailed';
+  }
+}
+
+/** Runs one part of a sync and, if it fails, says which part. */
+async function inStep<T>(step: SyncStep, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (original) {
+    throw new StepFailed(step, original);
+  }
+}
+
+const isSessionEnd = (error: unknown) => error instanceof ApiError && error.status === 401;
+
+/** The session ended or the network is gone: the next part would fail the same way. */
+const endsCycle = ({ original }: StepFailed) =>
+  isSessionEnd(original) || original instanceof NetworkError;
+
+/** What a person is shown: a status and code for the server's answers, a name and message otherwise. */
+function describeError(error: unknown): string {
   if (error instanceof ApiError) {
     return error.code ? `HTTP ${error.status} (${error.code})` : `HTTP ${error.status}`;
   }

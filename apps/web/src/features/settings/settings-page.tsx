@@ -171,6 +171,7 @@ function SyncCard() {
             className="bg-muted text-muted-foreground rounded-lg p-2 text-xs [overflow-wrap:anywhere]"
           >
             While {failure.step}: {failure.detail}
+            {failure.also ? `. Also, while ${failure.also.step}: ${failure.also.detail}` : null}
           </p>
         ) : null}
         {stale ? (
