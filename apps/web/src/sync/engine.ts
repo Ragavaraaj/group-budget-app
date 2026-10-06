@@ -264,7 +264,7 @@ export class SyncEngine {
       }
       const pulled = await inStep('receiving changes', () => this.pull());
       const backfilled = await inStep('loading a group', () => this.runBackfills());
-      changed = pulled || backfilled;
+      changed = pulled || backfilled || this.sentThisCycle;
       if (held !== null) throw held;
       this.loggedFailure = null;
       this.setStatus({ state: 'idle', lastSyncedAt: Date.now(), caughtUp: true });
@@ -324,7 +324,6 @@ export class SyncEngine {
       if (entries.length === 0) return;
       const results = await this.pushChunk(entries);
       await this.settle(entries, results);
-      this.sentThisCycle = true;
 
       // Every change should have been answered. If none was (a misbehaving server), stop here
       // rather than sending the same request forever; the next sync tries again.
@@ -332,6 +331,7 @@ export class SyncEngine {
       if (stillQueued.every((entry) => entry !== undefined)) {
         throw new Error('The server did not answer any of the queued changes');
       }
+      this.sentThisCycle = true; // only an answered request is progress
     }
   }
 

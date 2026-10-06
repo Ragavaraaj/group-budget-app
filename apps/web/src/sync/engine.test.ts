@@ -655,6 +655,14 @@ describe('polling', () => {
     vi.advanceTimersByTime(ms);
     await flush();
   };
+  /** `flush` for work that takes more turns of the fake database (a long queue). */
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) await flush();
+  };
+  const advanceLong = async (ms: number) => {
+    vi.advanceTimersByTime(ms);
+    await settle();
+  };
   const fire = async (target: unknown, type: string) => {
     (target as EventTarget).dispatchEvent(new Event(type));
     await flush();
@@ -862,22 +870,43 @@ describe('polling', () => {
       return ms.map((m) => ({ mutationId: m.mutationId, status: 'applied' as const, version: 1 }));
     });
     const engine = engineFor(api, {}, { pollMs: 30_000, maxPollMs: 240_000 });
-    // Twenty-five queued changes take a few turns of the fake database to send.
-    const settle = async () => {
-      for (let i = 0; i < 4; i++) await flush();
-    };
     engine.start();
-    await settle();
+    await settle(); // twenty-five queued changes take a few turns of the fake database
     expect(calls).toBe(2);
 
-    vi.advanceTimersByTime(30_000);
-    await settle();
+    await advanceLong(30_000);
     expect(calls).toBe(4);
     // Each round got something through, so the wait does not double.
-    vi.advanceTimersByTime(30_000);
-    await settle();
+    await advanceLong(30_000);
     expect(calls).toBe(5);
     expect(await db.outbox.count()).toBe(0);
+
+    // That last round sent its changes cleanly and had nothing to pull: sending is news too, so
+    // the next two polls are still 30 s apart (a round with nothing at all would make it 60 s).
+    const pulled = api.pulls.length;
+    await advance(30_000);
+    expect(api.pulls.length).toBe(pulled + 1);
+    await advance(30_000);
+    expect(api.pulls.length).toBe(pulled + 2);
+    engine.stop();
+  });
+
+  it('backs off while the server answers none of the changes, as it does for any failure', async () => {
+    await queueExpenses(2);
+    const api = new FakeApi(() => []); // 200, but no answer for any change
+    const engine = engineFor(api, {}, { pollMs: 30_000, maxPollMs: 240_000 });
+    engine.start();
+    await flush();
+    expect(api.pushes).toHaveLength(1);
+    expect(engine.getSnapshot().state).toBe('error');
+
+    await advance(30_000);
+    expect(api.pushes).toHaveLength(2);
+    await advance(30_000); // 60 s in: the wait has doubled, so nothing yet
+    expect(api.pushes).toHaveLength(2);
+    await advance(30_000); // 90 s in
+    expect(api.pushes).toHaveLength(3);
+    expect(await db.outbox.count()).toBe(2); // nothing lost
     engine.stop();
   });
 
