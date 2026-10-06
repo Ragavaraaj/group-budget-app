@@ -1,5 +1,5 @@
 import { type Mutation, type PullResponse, uuidv7 } from '@budget/shared';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import { BudgetDb, getMeta, setMeta } from '@/db/database';
 import { deleteExpense, saveExpense } from '@/db/repo';
 import type { Rejection } from '@/db/types';
@@ -20,16 +20,21 @@ const G = uuidv7();
 let db: BudgetDb;
 let online = true;
 let visible = true;
+let consoleError: MockInstance;
 const environment: Environment = { isOnline: () => online, isVisible: () => visible };
 
 beforeEach(async () => {
   online = true;
   visible = true;
+  consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   db = new BudgetDb(`test-${uuidv7()}`);
   await db.open();
 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 const engineFor = (api: FakeApi, events: SyncEvents = {}, extra: object = {}) =>
   new SyncEngine({ db, api, userId: ME, events, environment, ...extra });
@@ -178,6 +183,172 @@ describe('pushing', () => {
       await engine.trigger();
       expect(engine.getSnapshot().state).toBe('signed_out');
       expect(await db.outbox.count()).toBe(2); // waits for a new sign-in
+    });
+
+    it('says where it went wrong and why, and forgets it after a sync that works', async () => {
+      await queueExpenses(1);
+      const api = new FakeApi(() => Promise.reject(httpError(503)));
+      const engine = engineFor(api);
+      await engine.trigger();
+      expect(engine.getSnapshot().failure).toMatchObject({
+        step: 'sending changes',
+        detail: 'HTTP 503',
+      });
+
+      api.onPush = (ms) =>
+        ms.map((m) => ({ mutationId: m.mutationId, status: 'applied' as const }));
+      await engine.trigger();
+      expect(engine.getSnapshot().state).toBe('idle');
+      expect(engine.getSnapshot().failure).toBeNull();
+
+      api.onPull = () => {
+        throw new TypeError('undefined is not a function');
+      };
+      await engine.trigger();
+      expect(engine.getSnapshot().failure).toMatchObject({
+        step: 'receiving changes',
+        detail: 'TypeError: undefined is not a function',
+      });
+    });
+
+    it('names the step that failed when a group cannot be loaded', async () => {
+      await setMeta(db, `backfill:${G}`, 0);
+      const engine = engineFor(
+        new FakeApi(undefined, (q) => {
+          if (q.groupId) throw httpError(500);
+          return emptyPull();
+        }),
+      );
+      await engine.trigger();
+      expect(engine.getSnapshot().failure?.step).toBe('loading a group');
+      expect(await db.meta.where('key').startsWith('backfill:').count()).toBe(1); // tried again later
+    });
+
+    it('still pulls, and loads a group just joined, when the push fails', async () => {
+      await setMeta(db, 'cursor', 500);
+      await queueExpenses(1);
+      const api = new FakeApi(
+        () => Promise.reject(httpError(500)),
+        (q) =>
+          q.groupId
+            ? emptyPull({ cursor: 3, groups: [groupRow(G, ME)] })
+            : emptyPull({ cursor: 520, members: [memberRow(G, ME, { serverSeq: 510 })] }),
+      );
+      const engine = engineFor(api);
+      await engine.trigger();
+
+      expect(await db.groups.get(G)).toBeDefined();
+      expect(await getMeta(db, 'cursor')).toBe(520);
+      expect(await db.outbox.count()).toBe(1); // still waiting to be sent
+      // The failed push is still reported: nothing is hidden because the rest worked.
+      expect(engine.getSnapshot().state).toBe('error');
+      expect(engine.getSnapshot().failure).toMatchObject({ step: 'sending changes' });
+    });
+
+    it('keeps both causes when the push fails and then the pull does too', async () => {
+      await queueExpenses(1);
+      const api = new FakeApi(
+        () => Promise.reject(httpError(500)),
+        () => {
+          throw httpError(502);
+        },
+      );
+      const engine = engineFor(api);
+      await engine.trigger();
+
+      expect(engine.getSnapshot().failure).toEqual({
+        step: 'sending changes',
+        detail: 'HTTP 500',
+        also: { step: 'receiving changes', detail: 'HTTP 502' },
+      });
+      expect(consoleError).toHaveBeenCalledTimes(2); // both reach the console too
+    });
+
+    it('counts a push that failed with a falsy value as a failure, not a success', async () => {
+      await queueExpenses(1);
+      const engine = engineFor(new FakeApi(() => Promise.reject(undefined)));
+      await engine.trigger();
+      expect(engine.getSnapshot().state).toBe('error');
+      expect(engine.getSnapshot().failure?.step).toBe('sending changes');
+      expect(await db.outbox.count()).toBe(1);
+    });
+
+    it('drops the reason as soon as the state is no longer an error', async () => {
+      await queueExpenses(1);
+      const engine = engineFor(new FakeApi(() => Promise.reject(httpError(503))));
+      await engine.trigger();
+      expect(engine.getSnapshot().failure).not.toBeNull();
+
+      online = false;
+      await engine.trigger();
+      expect(engine.getSnapshot().state).toBe('offline');
+      expect(engine.getSnapshot().failure).toBeNull();
+    });
+
+    it('says whether everything the server had was received, apart from sending', async () => {
+      const received = async (api: FakeApi) => {
+        const engine = engineFor(api);
+        await engine.trigger();
+        return engine.getSnapshot();
+      };
+      await queueExpenses(1);
+      // Only sending failed: the pull and the backfills still finished.
+      expect(await received(new FakeApi(() => Promise.reject(httpError(500))))).toMatchObject({
+        state: 'error',
+        caughtUp: true,
+      });
+      // Receiving failed.
+      expect(
+        await received(
+          new FakeApi(undefined, () => {
+            throw httpError(500);
+          }),
+        ),
+      ).toMatchObject({ state: 'error', caughtUp: false });
+      // The group's row came, then its history did not: the group is only partly here.
+      await setMeta(db, 'cursor', 5);
+      let calls = 0;
+      const partial = await received(
+        new FakeApi(undefined, (q) => {
+          if (!q.groupId) return emptyPull({ members: [memberRow(G, ME, { serverSeq: 6 })] });
+          if (calls++ === 0)
+            return emptyPull({ cursor: 3, hasMore: true, groups: [groupRow(G, ME)] });
+          throw httpError(500);
+        }),
+      );
+      expect(partial).toMatchObject({ state: 'error', caughtUp: false });
+      expect(await db.groups.get(G)).toBeDefined(); // the row is here, so the row alone proves nothing
+      expect(await db.meta.where('key').startsWith('backfill:').count()).toBe(1);
+
+      // A clean sync catches up; being offline does not.
+      expect(await received(new FakeApi())).toMatchObject({ state: 'idle', caughtUp: true });
+      online = false;
+      expect(await received(new FakeApi())).toMatchObject({ state: 'offline', caughtUp: false });
+    });
+
+    it('writes a failure that keeps repeating to the console once', async () => {
+      const engine = engineFor(
+        new FakeApi(undefined, () => {
+          throw httpError(503);
+        }),
+      );
+      await engine.trigger();
+      await engine.trigger();
+      await engine.trigger();
+      expect(consoleError).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not pull on after the session ended or the network went', async () => {
+      await queueExpenses(1);
+      const ended = new FakeApi(() => Promise.reject(httpError(401)));
+      await engineFor(ended).trigger();
+      expect(ended.pulls).toHaveLength(0);
+
+      const gone = new FakeApi(() => {
+        throw new NetworkError();
+      });
+      await engineFor(gone).trigger();
+      expect(gone.pulls).toHaveLength(0);
     });
 
     it('sends nothing twice if a push succeeds but the pull then fails', async () => {
@@ -484,6 +655,14 @@ describe('polling', () => {
     vi.advanceTimersByTime(ms);
     await flush();
   };
+  /** `flush` for work that takes more turns of the fake database (a long queue). */
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) await flush();
+  };
+  const advanceLong = async (ms: number) => {
+    vi.advanceTimersByTime(ms);
+    await settle();
+  };
   const fire = async (target: unknown, type: string) => {
     (target as EventTarget).dispatchEvent(new Event(type));
     await flush();
@@ -680,6 +859,54 @@ describe('polling', () => {
     await flush();
     await advance(10 * 60_000);
     expect(api.pulls).toHaveLength(1);
+    engine.stop();
+  });
+
+  it('retries at the normal pace while a push keeps getting part of the way', async () => {
+    await queueExpenses(25); // three requests: 10, 10 and 5
+    let calls = 0;
+    const api = new FakeApi((ms) => {
+      if (++calls % 2 === 0) throw httpError(503); // every second request fails
+      return ms.map((m) => ({ mutationId: m.mutationId, status: 'applied' as const, version: 1 }));
+    });
+    const engine = engineFor(api, {}, { pollMs: 30_000, maxPollMs: 240_000 });
+    engine.start();
+    await settle(); // twenty-five queued changes take a few turns of the fake database
+    expect(calls).toBe(2);
+
+    await advanceLong(30_000);
+    expect(calls).toBe(4);
+    // Each round got something through, so the wait does not double.
+    await advanceLong(30_000);
+    expect(calls).toBe(5);
+    expect(await db.outbox.count()).toBe(0);
+
+    // That last round sent its changes cleanly and had nothing to pull: sending is news too, so
+    // the next two polls are still 30 s apart (a round with nothing at all would make it 60 s).
+    const pulled = api.pulls.length;
+    await advance(30_000);
+    expect(api.pulls.length).toBe(pulled + 1);
+    await advance(30_000);
+    expect(api.pulls.length).toBe(pulled + 2);
+    engine.stop();
+  });
+
+  it('backs off while the server answers none of the changes, as it does for any failure', async () => {
+    await queueExpenses(2);
+    const api = new FakeApi(() => []); // 200, but no answer for any change
+    const engine = engineFor(api, {}, { pollMs: 30_000, maxPollMs: 240_000 });
+    engine.start();
+    await flush();
+    expect(api.pushes).toHaveLength(1);
+    expect(engine.getSnapshot().state).toBe('error');
+
+    await advance(30_000);
+    expect(api.pushes).toHaveLength(2);
+    await advance(30_000); // 60 s in: the wait has doubled, so nothing yet
+    expect(api.pushes).toHaveLength(2);
+    await advance(30_000); // 90 s in
+    expect(api.pushes).toHaveLength(3);
+    expect(await db.outbox.count()).toBe(2); // nothing lost
     engine.stop();
   });
 

@@ -53,8 +53,12 @@ test.describe('when the server does not cooperate', () => {
 
     await page.getByRole('link', { name: 'Settings' }).click();
     await expect(
-      page.getByText('The server couldn’t be reached properly. Trying again shortly.'),
+      page.getByText('Something went wrong while syncing. Trying again shortly.'),
     ).toBeVisible();
+    // The reason is shown too, so a phone with a "Sync problem" can say what the problem is.
+    await expect(page.getByTestId('sync-failure')).toHaveText(
+      'While sending changes: HTTP 500 (internal_error)',
+    );
     await expect(page.getByText('1 change waiting to be sent.')).toBeVisible();
 
     // The server comes back; the person presses "Sync now".
