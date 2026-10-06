@@ -1,10 +1,17 @@
+import { useMemo, useSyncExternalStore } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { runningBuildId } from '@/pwa/build-id';
+import { updateReady } from '@/pwa/update-state';
 import { useHealth } from './use-health';
 
 export function ServerStatusCard() {
   const state = useHealth();
+  // Which build of the app this is, as against the server's version above. Shown whatever the
+  // server says: when it can't be reached is when someone most needs to know what they are running.
+  const buildId = useMemo(() => runningBuildId(), []);
+  const newerReady = useSyncExternalStore(updateReady.subscribe, updateReady.getSnapshot);
 
   return (
     <Card>
@@ -36,6 +43,14 @@ export function ServerStatusCard() {
             <Badge variant="destructive">Unreachable</Badge>
             <span className="text-muted-foreground text-sm">The server isn't responding</span>
           </div>
+        )}
+        <p className="text-muted-foreground mt-1 min-w-0 truncate text-xs" title={buildId}>
+          app build {buildId}
+        </p>
+        {newerReady && (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            A newer version of the app is ready. Close the app and open it again to update.
+          </p>
         )}
       </CardContent>
     </Card>

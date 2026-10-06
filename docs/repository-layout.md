@@ -47,7 +47,7 @@ group-budget-app/
 │        ├─ features/      auth · expenses · categories · groups · settings · status
 │        │                 insights · budgets · search · recurring · import
 │        │                 each: pages, components, pure helpers (with tests beside them)
-│        └─ pwa/           SW registration · install prompt · update toast
+│        └─ pwa/           SW registration · install prompt · update toast · when an update is applied (policy, loop guard, per-tab reload) · build id
 ├─ e2e/                    Playwright specs (pwa · security-headers · auth · ledger · groups · insights · planning · import · live)
 └─ .github/workflows/      ci.yml (checks on PRs; merge to main also deploys) · backup.yml (nightly D1 export to R2, gated)
 ```

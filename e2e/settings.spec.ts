@@ -77,4 +77,32 @@ test.describe('settings', () => {
     await page.reload();
     await expect(page.getByText('Unreachable', { exact: true })).toBeVisible();
   });
+
+  test('shows which build of the app is running, even when the server cannot be reached', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await devSignIn(page, uniqueEmail('app-build'));
+    await page.goto('/settings');
+
+    // The id is the hash in the name of the entry file this page was loaded with.
+    const entry = await page.evaluate(
+      () =>
+        Array.from(document.scripts, (script) => script.src).find((src) =>
+          /\/assets\/index-/.test(src),
+        ) ?? '',
+    );
+    const hash = /\/assets\/index-([A-Za-z0-9_-]+)\.js/.exec(entry)?.[1] ?? '';
+    expect(hash).toMatch(/^[A-Za-z0-9_-]{8}$/);
+    const line = page.getByText(`app build ${hash}`, { exact: true });
+    await expect(line).toBeVisible();
+    await expect(line).toHaveAttribute('title', hash);
+    await expect(page.getByText('A newer version of the app is ready.')).toBeHidden();
+
+    // It is the app's own: it does not depend on, or wait for, the server.
+    await page.route('**/api/healthz', (route) => route.abort());
+    await page.reload();
+    await expect(page.getByText('Unreachable', { exact: true })).toBeVisible();
+    await expect(line).toBeVisible();
+  });
 });
