@@ -1,9 +1,9 @@
 import { Download, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { isStandalone } from '@/auth/attempt';
 import { useAuth } from '@/auth/auth-context';
 import { Button } from '@/components/ui/button';
+import { isStandalone } from '@/pwa/standalone';
 
 /** The session ended (for example after 30 days away): the app keeps working, sync waits. */
 export function SessionExpiredBanner() {

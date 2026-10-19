@@ -1,14 +1,10 @@
 import { useEffect, useState } from 'react';
+import { isStandalone } from './standalone';
 
 /** Chromium's install prompt event; not in lib.dom because it isn't standardised. */
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
-
-function isStandalone(): boolean {
-  const iosStandalone = (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  return iosStandalone || window.matchMedia('(display-mode: standalone)').matches;
 }
 
 export interface InstallPrompt {

@@ -1,25 +1,16 @@
 import { attemptHashSchema, randomToken, sha256Hex } from '@budget/shared';
 import { z } from 'zod';
 import { ApiError, apiSend, NetworkError } from '@/lib/api';
+import { isStandalone } from '@/pwa/standalone';
 import { pendingAttempt } from './storage';
 
 /** How long a started sign-in stays redeemable on this device (the server allows 5+5 minutes). */
 export const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 
 /**
- * True when running as an installed app ("Add to Home Screen"), where on iOS the Google
- * redirect may end up outside the app. Browser tabs, Android and desktop use the plain redirect.
- */
-export function isStandalone(): boolean {
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (navigator as Navigator & { standalone?: boolean }).standalone === true
-  );
-}
-
-/**
- * Where "Continue with Google" goes. In the installed app the sign-in carries an attempt hash,
- * so it can be finished in whichever browser iOS opens and then handed back (docs/auth.md).
+ * Where "Continue with Google" goes. In the installed app, where on iOS the Google redirect may
+ * end up outside the app, the sign-in carries an attempt hash, so it can be finished in whichever
+ * browser iOS opens and then handed back (docs/auth.md). Browser tabs use the plain redirect.
  */
 export async function googleStartUrl(options: { invite?: string } = {}): Promise<string> {
   const params = new URLSearchParams();

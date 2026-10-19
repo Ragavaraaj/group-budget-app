@@ -1,13 +1,14 @@
 import { Loader2, LogIn, WifiOff } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useLocation, useSearchParams } from 'react-router';
-import { cancelAttempt, googleStartUrl, hasPendingAttempt, isStandalone } from '@/auth/attempt';
+import { cancelAttempt, googleStartUrl, hasPendingAttempt } from '@/auth/attempt';
 import { useAuth } from '@/auth/auth-context';
 import { LogoMark } from '@/components/logo-mark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { isStandalone } from '@/pwa/standalone';
 
 const ERRORS: Record<string, string> = {
   not_invited:

@@ -69,9 +69,10 @@ graphify god-nodes --top 10                                   # the architectura
 | `npm run e2e` | Builds, then runs Playwright (`playwright.config.ts` starts `wrangler dev` itself) |
 | `npx playwright test e2e/<file>.spec.ts` | One spec file, against an existing build (`npm run build` first) |
 | `npm run check:ts-only` | Fails if a `.js/.jsx/.mjs/.cjs` source file is tracked |
+| `npm run check:test-layout` | Fails if a unit test is tracked under `src/` (they belong in the package's `test/`) |
 
-CI (`.github/workflows/ci.yml`) runs: `check:ts-only`, `lint`, `typecheck`, `test`, `build`, `npm audit
---omit=dev --audit-level=high`, then `e2e`. Run the first five before pushing.
+CI (`.github/workflows/ci.yml`) runs: `check:ts-only`, `check:test-layout`, `lint`, `typecheck`, `test`,
+`build`, `npm audit --omit=dev --audit-level=high`, then `e2e`. Run the first six before pushing.
 
 In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to its binary (for example
 `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`). Do not run `playwright install` there.
@@ -89,11 +90,15 @@ In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to it
 - **Migrations** live in `apps/server/drizzle`, are generated with `npm run db:generate`, committed,
   additive and forward-only.
 - **shadcn components** are copied into `apps/web/src/components/ui` (linted, not reformatted).
-- Prefer a unit test beside the code for pure logic; the React components themselves are covered by e2e.
+- Prefer a unit test for pure logic; the React components themselves are covered by e2e. Unit tests live in
+  the package's `test/` folder at the path that mirrors `src/` (`src/sync/engine.ts` →
+  `test/sync/engine.test.ts`), never in `src/`. In web and server they import the code under test as
+  `@/...` and the helpers (`test/helpers.ts`, server `test/sync-helpers.ts`) relatively.
 
 ## Testing
 
-- Unit: `packages/shared` (Vitest + fast-check), `apps/server` (Vitest in `workerd`), `apps/web` (Vitest + fake-indexeddb).
+- Unit (`<package>/test/**/*.test.ts`): `packages/shared` (Vitest + fast-check), `apps/server` (Vitest in
+  `workerd`), `apps/web` (Vitest + fake-indexeddb).
 - **E2E (`e2e/*.spec.ts`)**: Chromium with the Pixel 7 profile against the built app and the
   production-like Worker. The e2e server runs with `ENVIRONMENT=development` and `ENABLE_DEV_LOGIN=1`,
   so `POST /api/auth/dev-login` exists and the Google flow has a stand-in page.

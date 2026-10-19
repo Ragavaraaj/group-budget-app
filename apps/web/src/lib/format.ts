@@ -13,10 +13,11 @@ function parts(date: string): { y: number; m: number; d: number } {
   return { y, m, d };
 }
 
-const localDate = (date: string) => {
+/** "2026-10-02" as a Date at local midnight (the reverse of `toLocalDate`), for formatting it. */
+export function fromLocalDate(date: string): Date {
   const { y, m, d } = parts(date);
   return new Date(y, m - 1, d);
-};
+}
 
 /** "Today", "Yesterday", or "Fri, 2 Oct" (with the year when it isn't this year). */
 export function formatDay(date: string, today: string = toLocalDate()): string {
@@ -25,7 +26,7 @@ export function formatDay(date: string, today: string = toLocalDate()): string {
   const yesterday = toLocalDate(new Date(now.y, now.m - 1, now.d - 1));
   if (date === yesterday) return 'Yesterday';
   const sameYear = parts(date).y === now.y;
-  return localDate(date).toLocaleDateString('en-IN', {
+  return fromLocalDate(date).toLocaleDateString('en-IN', {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -35,19 +36,16 @@ export function formatDay(date: string, today: string = toLocalDate()): string {
 
 /** "2026-10" → "October 2026". */
 export function formatMonth(key: string): string {
-  return localDate(`${key}-01`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  return fromLocalDate(`${key}-01`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
-
-/** The month key for today. */
-export const currentMonth = () => toLocalDate().slice(0, 7);
 
 /** "Oct", for a chart axis. */
 export function formatMonthShort(key: string): string {
-  return localDate(`${key}-01`).toLocaleDateString('en-IN', { month: 'short' });
+  return fromLocalDate(`${key}-01`).toLocaleDateString('en-IN', { month: 'short' });
 }
 
 const shortDate = (date: string, withYear: boolean) =>
-  localDate(date).toLocaleDateString('en-IN', {
+  fromLocalDate(date).toLocaleDateString('en-IN', {
     day: 'numeric',
     month: 'short',
     ...(withYear ? { year: 'numeric' } : {}),

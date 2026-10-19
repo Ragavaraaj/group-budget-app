@@ -5,21 +5,22 @@
 ```
 group-budget-app/
 ├─ package.json            npm workspaces: ["apps/*", "packages/*"]; root scripts
-├─ tsconfig.base.json · biome.json
+├─ tsconfig.base.json · biome.json · playwright.config.ts
 ├─ docs/PLAN.md            (plus one document per topic)
 ├─ packages/
 │  └─ shared/              @budget/shared — pure TS, no I/O
-│     └─ src/              money · dates · periods (month start day, Indian FY) · ids (UUIDv7) · crypto (token + SHA-256, one copy for both sides) · splits · balances (+ settle-up)
-│                          reports (summaries, trends) · budgets (status) · recurring (dates, derived ids)
-│                          limits · defaults (default categories)
-│                          schemas/ (zod: entities, sync mutations/pull, API payloads) · index.ts
+│     ├─ src/              money · dates · periods (month start day, Indian FY) · ids (UUIDv7) · crypto (token + SHA-256, one copy for both sides) · splits · balances (+ settle-up)
+│     │                    reports (summaries, trends) · budgets (status) · recurring (dates, derived ids)
+│     │                    limits · defaults (default categories)
+│     │                    schemas/ (zod: entities, sync mutations/pull, API payloads) · index.ts
+│     └─ test/             unit and property tests (Vitest + fast-check), mirroring src/
 ├─ apps/
 │  ├─ server/              @budget/server — Hono on Cloudflare Workers + Drizzle on D1
 │  │  ├─ wrangler.jsonc    Worker config: D1 binding, static assets, vars
 │  │  ├─ .dev.vars.example local-only settings/secrets (copy to .dev.vars)
 │  │  ├─ drizzle.config.ts · vitest.config.ts
 │  │  ├─ drizzle/          generated SQL migrations (committed; applied by Wrangler)
-│  │  ├─ test/             apply-migrations · helpers (cookie-keeping Client) · sync-helpers
+│  │  ├─ test/             unit tests mirroring src/ (run in workerd) · apply-migrations · helpers (cookie-keeping Client) · sync-helpers
 │  │  └─ src/
 │  │     ├─ index.ts       the Worker: fetch (Hono app, and /api/live), scheduled, exports LiveHub
 │  │     ├─ app.ts         Hono app factory (what tests import)
@@ -36,6 +37,7 @@ group-budget-app/
 │  └─ web/                 @budget/web — React + Vite PWA
 │     ├─ index.html · vite.config.ts · vitest.config.ts · components.json (shadcn)
 │     ├─ public/           icons, favicon, _headers (CSP + caching)
+│     ├─ test/             unit tests mirroring src/ (Node + fake-indexeddb) · helpers (row builders, scripted FakeApi)
 │     └─ src/
 │        ├─ main.tsx · App.tsx (routes)
 │        ├─ components/ui/ shadcn components (copied, ours to edit)
@@ -46,9 +48,9 @@ group-budget-app/
 │        ├─ auth/          auth context · sync/db provider · attempt-login · storage
 │        ├─ features/      auth · expenses · categories · groups · settings · status
 │        │                 insights · budgets · search · recurring · import
-│        │                 each: pages, components, pure helpers (with tests beside them)
-│        └─ pwa/           SW registration · install prompt · update toast · when an update is applied (policy, loop guard, per-tab reload) · build id
-├─ e2e/                    Playwright specs (pwa · security-headers · auth · ledger · groups · insights · planning · import · live)
+│        │                 each: pages, components, pure helpers (unit-tested under test/features/)
+│        └─ pwa/           SW registration · install prompt · standalone check · update toast · when an update is applied (policy, loop guard, per-tab reload) · build id
+├─ e2e/                    Playwright specs, one file per area (listed in testing.md) · helpers
 └─ .github/workflows/      ci.yml (checks on PRs; merge to main also deploys) · backup.yml (nightly D1 export to R2, gated)
 ```
 

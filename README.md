@@ -51,6 +51,9 @@ packages/shared  pure TS, no I/O                     (@budget/shared)
 e2e              Playwright tests
 ```
 
+Each package keeps its code in `src/` and its unit tests in `test/`, at the path that mirrors the
+code (`apps/web/src/sync/engine.ts` is tested by `apps/web/test/sync/engine.test.ts`).
+
 Dependency direction is `web → shared ← server`; `shared` imports nothing of ours, and `web` and
 `server` never import each other. Biome's `noRestrictedImports` rule (see `biome.json`) enforces it.
 
@@ -66,6 +69,7 @@ Dependency direction is `web → shared ← server`; `shared` imports nothing of
 | `npm run lint`                          | Biome: lint, format and import-order check (read-only, what CI runs)      |
 | `npm run lint:fix` / `npm run format`   | Apply Biome's fixes / formatting                                          |
 | `npm run check:ts-only`                 | Fails if any `.js/.jsx/.mjs/.cjs` source file is tracked                  |
+| `npm run check:test-layout`             | Fails if a unit test is tracked under a `src/` folder instead of `test/`  |
 | `npm run db:generate`                   | Generate a Drizzle migration after editing `apps/server/src/db/schema`    |
 | `npm run db:migrate:local`              | Apply migrations to the local simulated D1                                |
 | `npm run deploy`                        | Build the web app and deploy the Worker (needs a Cloudflare login)        |
@@ -141,6 +145,10 @@ never printed or attached). To restore, `gunzip` a dump, create a new D1 databas
 - **TypeScript only.** Config files are `.ts` too (`vite.config.ts`, `vitest.config.ts`,
   `playwright.config.ts`, ...). `wrangler.jsonc`, `biome.json` and `tsconfig*.json` are the only
   non-code config. CI runs `check:ts-only`.
+- **Unit tests live in `test/`, not beside the code.** Each package's `test/` mirrors its `src/`;
+  web and server tests import the code under test through the `@/` alias (`@/sync/engine`) and
+  their helpers (`test/helpers.ts`) relatively. Vitest only looks in `test/`, so CI runs
+  `check:test-layout` to catch a test left in `src/`, where it would silently never run.
 - **Node 26 and npm 11.** npm 10 (Node 22) crashes resolving Vitest's peer set, so changing
   dependencies needs npm 11+. npm 11 also refuses to run dependency install scripts unless they are
   approved; `allowScripts` in `package.json` approves the two that ship native binaries

@@ -24,6 +24,7 @@ export default defineConfig(async () => {
         },
       }),
     ],
-    test: { setupFiles: ['./test/apply-migrations.ts'] },
+    resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+    test: { include: ['test/**/*.test.ts'], setupFiles: ['./test/apply-migrations.ts'] },
   };
 });

@@ -34,11 +34,6 @@ export async function findUserBySub(db: Db, sub: string): Promise<UserRecord | n
   return user ?? null;
 }
 
-export async function findUserById(db: Db, id: string): Promise<UserRecord | null> {
-  const [user] = await db.select(userColumns).from(users).where(eq(users.id, id)).limit(1);
-  return user ?? null;
-}
-
 export async function personalGroupIdOf(db: Db, userId: string): Promise<string | null> {
   const [group] = await db
     .select({ id: groups.id })
