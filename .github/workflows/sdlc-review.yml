@@ -61,7 +61,15 @@ jobs:
             tools/sdlc
             .github/actions
           persist-credentials: false
-      - run: echo '.sdlc-cli/' >> .git/info/exclude
+      - run: |
+          echo '.sdlc-cli/' >> .git/info/exclude
+          # Until the pipeline is on main (the pull request that adds it), use the branch's copy.
+          if [ ! -f .sdlc-cli/tools/sdlc/src/cli.ts ]; then
+            echo "::notice::main has no tools/sdlc yet; using this branch's copy of the pipeline."
+            mkdir -p .sdlc-cli/tools .sdlc-cli/.github
+            cp -r tools/sdlc .sdlc-cli/tools/
+            cp -r .github/actions .sdlc-cli/.github/
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -70,6 +78,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
         run: $SDLC gate --stage review --pr "$PR"
 
       - if: steps.gate.outputs.proceed == 'true'

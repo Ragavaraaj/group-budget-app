@@ -73,6 +73,11 @@ export async function gate(env: Env, flags: Flags): Promise<void> {
   const work = workFrom(flags);
   setOutput('proceed', 'false');
   if (!env.enabled) return skip('the pipeline is switched off (SDLC_ENABLED=false)');
+  if (process.env.SDLC_HAS_CLAUDE === 'false') {
+    return skip(
+      'no Claude credentials: add the CLAUDE_CODE_OAUTH_TOKEN secret (docs/ai-sdlc.md, "Setup")',
+    );
+  }
 
   let pr: PullRequest | null = null;
   let card: Card | null = null;
