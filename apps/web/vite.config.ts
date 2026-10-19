@@ -15,7 +15,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      // The user decides when to reload into a new version; we never swap code mid-entry.
+      // A new version found right after the app opens (nothing entered, no other tab) is applied at
+      // once; any other waits for the person to tap Reload, so we never swap code mid-entry
+      // (src/pwa/update-policy.ts).
       registerType: 'prompt',
       injectRegister: false, // registered explicitly in src/pwa/register.ts
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],

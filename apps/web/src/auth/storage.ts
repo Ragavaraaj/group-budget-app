@@ -15,11 +15,13 @@ function read<T>(key: string): T | null {
   }
 }
 
-function write(key: string, value: unknown): void {
+/** False when it could not be stored (storage blocked or full). */
+function write(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    // Not available; carry on without.
+    return false; // Not available; carry on without.
   }
 }
 
@@ -51,4 +53,18 @@ export const pendingAttempt = {
   read: () => read<PendingAttempt>(ATTEMPT_KEY),
   write: (attempt: PendingAttempt) => write(ATTEMPT_KEY, attempt),
   clear: () => remove(ATTEMPT_KEY),
+};
+
+const AUTO_UPDATE_KEY = 'gb:auto-update-at';
+
+/**
+ * When a new version of the app was last applied without asking. Kept so that it is never done
+ * twice in a row, which could otherwise reload the app in a loop (src/pwa/update-policy.ts).
+ */
+export const lastAutoUpdate = {
+  read: (): number | null => {
+    const at = read<unknown>(AUTO_UPDATE_KEY);
+    return typeof at === 'number' ? at : null;
+  },
+  write: (at: number): boolean => write(AUTO_UPDATE_KEY, at),
 };
