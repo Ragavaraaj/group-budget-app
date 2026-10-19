@@ -12,6 +12,8 @@ Group Budget: an offline-first PWA for personal and shared expenses, Indian rupe
 - `apps/server` (`@budget/server`): Hono on a Cloudflare Worker, D1 through Drizzle, one Durable Object (live updates), an hourly cron (recurring expenses).
 - `packages/shared` (`@budget/shared`): pure TypeScript with no I/O (money in paise, dates, periods, splits, balances, zod schemas), used by both sides.
 - `e2e`: Playwright tests that run against `wrangler dev` serving the **built** web app and the API from one origin.
+- `tools/sdlc` (`@budget/sdlc`): the AI SDLC pipeline's CLI, run by the `sdlc-*` workflows (no dependencies;
+  Node runs its TypeScript directly). See [`docs/ai-sdlc.md`](docs/ai-sdlc.md).
 
 Dependency direction is `web -> shared <- server`. `web` and `server` never import each other; Biome's
 `noRestrictedImports` enforces it.
@@ -70,9 +72,13 @@ graphify god-nodes --top 10                                   # the architectura
 | `npx playwright test e2e/<file>.spec.ts` | One spec file, against an existing build (`npm run build` first) |
 | `npm run check:ts-only` | Fails if a `.js/.jsx/.mjs/.cjs` source file is tracked |
 | `npm run check:test-layout` | Fails if a unit test is tracked under `src/` (they belong in the package's `test/`) |
+| `npm run check:bug-refs` | Fails if a `test.fail(...)` does not name its bug issue (`'Bug #123: ...'`) |
+| `npm run lint:claude` | Checks `.claude/agents` and `.claude/skills`: frontmatter, references, each agent's model and effort |
 
-CI (`.github/workflows/ci.yml`) runs: `check:ts-only`, `check:test-layout`, `lint`, `typecheck`, `test`,
-`build`, `npm audit --omit=dev --audit-level=high`, then `e2e`. Run the first six before pushing.
+CI (`.github/workflows/ci.yml`) runs: `check:ts-only`, `check:test-layout`, `check:bug-refs`, `lint:claude`,
+`lint`, `typecheck`, `test`, `build` (uploaded as the `web-dist` artifact), `npm audit --omit=dev
+--audit-level=high`, then `e2e` in three shards against that build. Run everything before `e2e` before
+pushing (the `pre-push-checks` skill).
 
 In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to its binary (for example
 `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`). Do not run `playwright install` there.
@@ -120,10 +126,11 @@ In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to it
   - Use `chooseOption` for drop-downs, so a test works whether the control is a native select or the
     shadcn Select.
 - What is and is not covered, with counts: [`docs/testing.md`](docs/testing.md). Update it when you add specs.
-- **When a test finds a real bug**, do not weaken the test. Write the bug up in
-  [`docs/known-bugs.md`](docs/known-bugs.md) (steps, expected, actual, cause, the test) and mark the
-  test `test.fail(true, 'BUG-nnn: ...')` so it passes while the bug is open and fails when it is
-  fixed. A failure caused by the test itself is not a bug: fix the test.
+- **When a test finds a real bug**, do not weaken the test. File it as a GitHub issue labelled `bug`
+  (steps, expected, actual, cause, the test; the `report-bug` skill has the details) and mark the test
+  `test.fail(true, 'Bug #<n>: ...')` so it passes while the bug is open and fails when it is fixed;
+  `check:bug-refs` enforces the reference. A failure caused by the test itself is not a bug: fix the test.
+- **Bugs and plans live in GitHub issues, on the board, never in files in the repository.**
 
 ## Where the design lives
 
@@ -136,9 +143,23 @@ In a sandbox with a pre-installed Chromium, set `PLAYWRIGHT_CHROMIUM_PATH` to it
 | Screens, routes, UX | [`docs/frontend.md`](docs/frontend.md) |
 | Hosting, deploy, backups | [`docs/infrastructure.md`](docs/infrastructure.md) |
 | Roadmap, risks | [`docs/roadmap.md`](docs/roadmap.md), [`docs/risks.md`](docs/risks.md) |
-| Bugs found by the tests, not yet fixed | [`docs/known-bugs.md`](docs/known-bugs.md) |
+| The AI SDLC: the board, the workflows, agents and skills | [`docs/ai-sdlc.md`](docs/ai-sdlc.md) |
+| Bugs | GitHub issues labelled [`bug`](https://github.com/Ragavaraaj/group-budget-app/issues?q=label%3Abug), on the board |
+
+## Agents and skills
+
+`.claude/agents` holds specialists for this repo (`planner`, `code-reviewer`, `ui-engineer`,
+`server-engineer`, `sync-engineer`, `test-engineer`, `ui-reviewer`, `security-reviewer`, `ci-fixer`,
+`docs-writer`) and `.claude/skills` the procedures (`pre-push-checks`, `codebase-graph`,
+`db-migration`, `synced-entity`, `ui-feature`, `e2e-spec`, `report-bug`, `steward`, and the four
+`sdlc-*` stages). The GitHub Actions pipeline uses them, and so should a session: hand UI work to
+`ui-engineer`, a review to `code-reviewer`, and run `pre-push-checks` before a push. The planner and
+the code reviewer run on `opus` at `xhigh` effort, the rest on `sonnet` at `high`; `lint:claude` holds
+them to it (`tools/sdlc/src/agent-policy.ts`).
 
 ## Git
 
 Work on a short-lived branch with a descriptive name (`test/...`, `feat/...`, `fix/...`, `chore/...`),
-never directly on `main`. `main` deploys to Cloudflare once CI is green.
+never directly on `main`. A branch for a board issue is `<type>/<issue>-<slug>` (`feat/12-show-app-version`).
+Pull requests fill `.github/pull_request_template.md`, starting with `Closes #<issue>`. `main` deploys to
+Cloudflare once CI is green.

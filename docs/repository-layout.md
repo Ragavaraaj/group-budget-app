@@ -4,7 +4,7 @@
 
 ```
 group-budget-app/
-├─ package.json            npm workspaces: ["apps/*", "packages/*"]; root scripts
+├─ package.json            npm workspaces: ["apps/*", "packages/*", "tools/*"]; root scripts
 ├─ tsconfig.base.json · biome.json · playwright.config.ts
 ├─ docs/PLAN.md            (plus one document per topic)
 ├─ packages/
@@ -51,7 +51,20 @@ group-budget-app/
 │        │                 each: pages, components, pure helpers (unit-tested under test/features/)
 │        └─ pwa/           SW registration · install prompt · standalone check · update toast · when an update is applied (policy, loop guard, per-tab reload) · build id
 ├─ e2e/                    Playwright specs, one file per area (listed in testing.md) · helpers
-└─ .github/workflows/      ci.yml (checks on PRs; merge to main also deploys) · backup.yml (nightly D1 export to R2, gated)
+├─ tools/
+│  └─ sdlc/                @budget/sdlc — the AI SDLC pipeline's CLI (docs/ai-sdlc.md); no dependencies, run as `node tools/sdlc/src/cli.ts`
+│     ├─ src/              decide (board rules, merge gate) · limits (usage limits) · state (progress comment) · plan · branch · review · lint-claude · bug-refs (pure, unit-tested)
+│     │                    github · project (Projects v2) · repo · card · wip · env · commands/ (doctor, poll, events, stage, merge, checks) · cli.ts
+│     ├─ schemas/          JSON schemas for Claude's structured output (plan, review, fix)
+│     └─ test/             unit tests mirroring src/
+├─ .claude/
+│  ├─ agents/              custom agents: planner, code-reviewer, ui-engineer, server-engineer, sync-engineer, test-engineer, ui-reviewer, security-reviewer, ci-fixer, docs-writer
+│  └─ skills/              project skills: the four sdlc-* stages, pre-push-checks, codebase-graph, db-migration, synced-entity, ui-feature, e2e-spec, report-bug, steward
+└─ .github/
+   ├─ workflows/           ci.yml (checks on PRs, e2e in three shards; merge to main also deploys) · backup.yml (nightly D1 export to R2, gated) · sdlc-*.yml (the AI SDLC: board, plan, implement, review, fix, merge, doctor)
+   ├─ actions/             composite actions: claude-run, agent-env, playwright-browsers
+   ├─ ISSUE_TEMPLATE/      the Bug form (bugs are issues on the board)
+   └─ pull_request_template.md   starts with `Closes #<issue>`; the plan stays in the issue
 ```
 
 **Dependency rules** (enforced by Biome's `noRestrictedImports`, for both package-name and relative imports):
@@ -61,6 +74,7 @@ group-budget-app/
 | `packages/shared` | nothing (only external pure libs such as `zod`)           |
 | `apps/server`     | `@budget/shared`, its own `src`                           |
 | `apps/web`        | `@budget/shared`, its own `src` — **never `apps/server`** |
+| `tools/sdlc`      | Node built-ins and its own `src` — **nothing from `apps/*` or `packages/*`** |
 
 **Tooling decisions**
 
