@@ -718,6 +718,32 @@ describe('polling', () => {
     engine.stop();
   });
 
+  it('keeps trying at the normal pace while the network is down, and recovers without an `online` event', async () => {
+    // iOS may never fire `online`, so a backed-off retry would leave a phone "offline" for minutes.
+    let reachable = false;
+    const api = new FakeApi(undefined, () => {
+      if (!reachable) throw new NetworkError();
+      return emptyPull();
+    });
+    const engine = engineFor(api, {}, { pollMs: 30_000, maxPollMs: 600_000 });
+    engine.start();
+    await flush();
+    expect(engine.getSnapshot().state).toBe('offline');
+    const seen: string[] = [];
+    engine.subscribe(() => seen.push(engine.getSnapshot().state));
+
+    await advance(30_000);
+    await advance(30_000);
+    await advance(30_000); // three more tries, 30 s apart, not 60 s, 120 s, ...
+    expect(api.pulls).toHaveLength(4);
+    expect(seen).not.toContain('syncing'); // trying again is not announced as "Syncing"
+
+    reachable = true;
+    await advance(30_000);
+    expect(engine.getSnapshot().state).toBe('idle');
+    engine.stop();
+  });
+
   it('goes back to polling quickly as soon as there is news', async () => {
     let n = 0;
     const api = new FakeApi(undefined, () =>

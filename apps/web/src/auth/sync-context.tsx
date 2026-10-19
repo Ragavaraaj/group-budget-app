@@ -40,10 +40,10 @@ export function SignedInProvider({ me, children }: { me: MeResponse; children: R
     const live = new LiveChannel({
       onChanged: () => engine.onLiveNews(),
       onConnection: (connected) => engine.setLive(connected),
+      // Not `navigator.onLine`: iOS can say "offline" on a working connection. A socket that
+      // can't open just fails and is retried, and plain HTTP polling carries the sync meanwhile.
       canConnect: () =>
-        navigator.onLine &&
-        document.visibilityState === 'visible' &&
-        engine.getSnapshot().state !== 'signed_out',
+        document.visibilityState === 'visible' && engine.getSnapshot().state !== 'signed_out',
     });
     engine = new SyncEngine({
       db,
