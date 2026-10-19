@@ -1,0 +1,17 @@
+{
+  "name": "@budget/sdlc",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The AI SDLC pipeline's CLI: board updates, gates, pauses and checks, run by GitHub Actions.",
+  "bin": {
+    "sdlc": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.0"
+  }
+}

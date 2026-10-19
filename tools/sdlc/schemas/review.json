@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings", "summary", "resolved_thread_ids"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "description": "New findings for this round. The pipeline posts them as one review; do not post comments yourself.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "line", "severity", "title", "body"],
+        "properties": {
+          "path": { "type": "string" },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A line in the new version of the file, inside the diff."
+          },
+          "severity": { "type": "string", "enum": ["blocking", "nit"] },
+          "title": { "type": "string" },
+          "body": {
+            "type": "string",
+            "description": "What is wrong, the realistic path to it, and the fix."
+          }
+        }
+      }
+    },
+    "summary": { "type": "string" },
+    "resolved_thread_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ids (from threads.json) of earlier AI review threads the latest commits fix."
+    }
+  }
+}

@@ -137,6 +137,26 @@
       }
     },
     {
+      "includes": ["tools/sdlc/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@budget/*", "**/apps/**", "**/packages/**"],
+                    "message": "tools/sdlc stands alone: it runs without npm ci, so it imports nothing from apps/* or packages/*."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["apps/web/src/components/ui/**"],
       "formatter": {
         "enabled": false
