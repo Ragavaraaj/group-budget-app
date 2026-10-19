@@ -1,4 +1,5 @@
 import { nextOccurrence, type Recurrence, type Schedule } from '@budget/shared';
+import { fromLocalDate } from '@/lib/format';
 
 const ordinal = (n: number) => {
   const rest = n % 100;
@@ -6,23 +7,19 @@ const ordinal = (n: number) => {
   return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
 };
 
-const parts = (date: string) => {
-  const [y = 0, m = 1, d = 1] = date.split('-').map(Number);
-  return { y, m, d };
-};
-
 /** "Every week on Friday", "Every month on the 5th", "Every year on 2 Oct". */
 export function describeSchedule(schedule: Pick<Schedule, 'frequency' | 'startOn'>): string {
-  const { y, m, d } = parts(schedule.startOn);
+  const start = fromLocalDate(schedule.startOn);
+  const day = start.getDate();
   switch (schedule.frequency) {
     case 'weekly':
-      return `Every week on ${new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday: 'long' })}`;
+      return `Every week on ${start.toLocaleDateString('en-IN', { weekday: 'long' })}`;
     case 'monthly':
-      return d > 28
-        ? `Every month on the ${ordinal(d)} (the last day in shorter months)`
-        : `Every month on the ${ordinal(d)}`;
+      return day > 28
+        ? `Every month on the ${ordinal(day)} (the last day in shorter months)`
+        : `Every month on the ${ordinal(day)}`;
     case 'yearly':
-      return `Every year on ${new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+      return `Every year on ${start.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
   }
 }
 

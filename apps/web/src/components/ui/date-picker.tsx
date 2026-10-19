@@ -1,5 +1,6 @@
 "use client"
 
+import { toLocalDate } from "@budget/shared"
 import { CalendarIcon, X } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -7,16 +8,11 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 
-/** The app keeps dates as local `YYYY-MM-DD` text; these convert to and from a local Date. */
+/** The app keeps dates as local `YYYY-MM-DD` text (`toLocalDate` turns a Date back into it). */
 function parse(value: string): Date | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (!match) return undefined
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-}
-
-function format(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 const SHOWN = new Intl.DateTimeFormat("en-IN", {
@@ -93,7 +89,7 @@ export function DatePicker({
           ]}
           onSelect={(day) => {
             if (!day) return
-            onChange(format(day))
+            onChange(toLocalDate(day))
             setOpen(false)
           }}
         />

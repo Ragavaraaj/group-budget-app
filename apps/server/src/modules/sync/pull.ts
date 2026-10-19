@@ -1,4 +1,4 @@
-import { PULL_DEFAULT_LIMIT, type PullResponse } from '@budget/shared';
+import type { PullResponse } from '@budget/shared';
 import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Db } from '../../db/client';
@@ -218,5 +218,3 @@ export async function pullChanges(
     recurring: upTo(pages.recurring),
   };
 }
-
-export { PULL_DEFAULT_LIMIT };
