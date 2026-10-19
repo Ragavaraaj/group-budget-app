@@ -36,7 +36,7 @@ env:
 
 jobs:
   merge:
-    name: Merge gate for #${{ inputs.pr || github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+    name: "Merge gate for #${{ inputs.pr || github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}"
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_review' &&

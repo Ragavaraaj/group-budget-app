@@ -39,7 +39,7 @@ env:
 
 jobs:
   plan:
-    name: Plan issue #${{ inputs.issue }}
+    name: "Plan issue #${{ inputs.issue }}"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

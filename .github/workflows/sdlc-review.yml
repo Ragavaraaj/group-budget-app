@@ -39,7 +39,7 @@ env:
 
 jobs:
   review:
-    name: AI review of #${{ github.event.pull_request.number || inputs.pr }}
+    name: "AI review of #${{ github.event.pull_request.number || inputs.pr }}"
     # Forks get no secrets, so they are not reviewed here; drafts wait until they are ready.
     if: >-
       github.event_name == 'workflow_dispatch' ||

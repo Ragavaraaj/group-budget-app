@@ -36,7 +36,7 @@ env:
 
 jobs:
   implement:
-    name: Implement issue #${{ inputs.issue }}
+    name: "Implement issue #${{ inputs.issue }}"
     runs-on: ubuntu-latest
     # The app token Claude pushes with lasts an hour, so the skill pushes early and often.
     timeout-minutes: 75

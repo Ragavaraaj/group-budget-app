@@ -53,7 +53,7 @@ env:
 
 jobs:
   fix:
-    name: Fix #${{ inputs.pr || github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }} (${{ inputs.reason || (github.event_name == 'workflow_run' && 'ci') || 'review' }})
+    name: "Fix #${{ inputs.pr || github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }} (${{ inputs.reason || (github.event_name == 'workflow_run' && 'ci') || 'review' }})"
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' &&
