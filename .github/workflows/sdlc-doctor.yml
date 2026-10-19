@@ -1,0 +1,35 @@
+name: SDLC doctor
+
+# Run once after setting the secrets and variables (docs/ai-sdlc.md, "Setup"), and whenever the
+# pipeline misbehaves. It checks the setup and fixes what is safe to fix: the AI stage and AI note
+# fields, labels, the control issue, the repository link, and bug issues missing from the board.
+# A missing Status column is reported, never added: rewriting that field can wipe card values.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  doctor:
+    name: Check the AI SDLC setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/sdlc
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+          SDLC_OWNER: ${{ vars.SDLC_OWNER }}
+          HAS_CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          HAS_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: node tools/sdlc/src/cli.ts doctor

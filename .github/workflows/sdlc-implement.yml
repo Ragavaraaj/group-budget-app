@@ -1,0 +1,169 @@
+name: SDLC implement
+
+# Builds an approved plan: a branch named by the CLAUDE.md convention, the change, the checks,
+# docs and the Graphify graph, then a pull request that closes the issue. Started by `/approve`
+# (through SDLC board) or by the poller when the card is dragged to In Progress. It carries on
+# from the planning session (artifact `sdlc-plan-<n>`) or from saved work in progress.
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+        type: number
+
+concurrency:
+  group: sdlc-issue-${{ inputs.issue }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read # Claude pushes with the Claude GitHub App's token, not this one
+  issues: write
+  pull-requests: write
+  actions: write
+  id-token: write
+
+env:
+  ISSUE: ${{ inputs.issue }}
+  PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+  PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+  SDLC_OWNER: ${{ vars.SDLC_OWNER }}
+  SDLC_ENABLED: ${{ vars.SDLC_ENABLED }}
+  SDLC_MAX_PARALLEL: ${{ vars.SDLC_MAX_PARALLEL }}
+  SDLC_SIMULATE_LIMIT: ${{ vars.SDLC_SIMULATE_LIMIT }}
+  SDLC: node .sdlc-cli/tools/sdlc/src/cli.ts
+  WRANGLER_SEND_METRICS: 'false'
+
+jobs:
+  implement:
+    name: Implement issue #${{ inputs.issue }}
+    runs-on: ubuntu-latest
+    # The app token Claude pushes with lasts an hour, so the skill pushes early and often.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: .sdlc-cli
+          sparse-checkout: |
+            tools/sdlc
+            .github/actions
+          persist-credentials: false
+      - run: echo '.sdlc-cli/' >> .git/info/exclude
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+        run: $SDLC gate --stage implement --issue "$ISSUE"
+
+      - if: steps.gate.outputs.proceed == 'true'
+        uses: ./.sdlc-cli/.github/actions/agent-env
+        with:
+          install: 'true'
+          browsers: 'true'
+
+      - id: resume
+        if: steps.gate.outputs.proceed == 'true' && steps.gate.outputs.resume_run != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.gate.outputs.resume_artifact }}
+          run-id: ${{ steps.gate.outputs.resume_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/resume
+      - id: restore
+        if: steps.resume.outcome == 'success'
+        run: $SDLC restore-wip --dir "$RUNNER_TEMP/resume"
+
+      - id: claude
+        if: steps.gate.outputs.proceed == 'true'
+        uses: ./.sdlc-cli/.github/actions/claude-run
+        with:
+          prompt: |
+            Use the `sdlc-implement` skill for issue #${{ env.ISSUE }} in ${{ github.repository }}.
+            Branch: `${{ steps.gate.outputs.branch }}`. If it already exists (on origin, or checked
+            out with earlier work), continue it instead of starting over; never use another name.
+            The planning context, when present, is in ${{ runner.temp }}/resume/context.json.
+          allowed-tools: >-
+            Read, Glob, Grep, LS, Edit, MultiEdit, Write, Skill, Task, Agent, TodoWrite,
+            Bash(npm run:*), Bash(npm test:*), Bash(npm ci), Bash(npm install:*),
+            Bash(npx playwright test:*), Bash(npx biome:*), Bash(npx vitest:*), Bash(npx tsc:*),
+            Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*),
+            Bash(git add:*), Bash(git commit:*), Bash(git checkout:*), Bash(git switch:*),
+            Bash(git branch:*), Bash(git fetch:*), Bash(git merge:*), Bash(git push:*),
+            Bash(git rev-parse:*), Bash(git rm:*), Bash(git mv:*), Bash(git stash:*),
+            Bash(gh issue view:*), Bash(gh issue list:*), Bash(gh issue create:*),
+            Bash(gh pr create:*), Bash(gh pr view:*), Bash(gh pr edit:*), Bash(gh pr ready:*),
+            Bash(gh pr list:*), Bash(graphify:*), Bash(ls:*), Bash(cat:*), Bash(mkdir:*),
+            Bash(mktemp:*)
+          max-turns: '200'
+          resume: ${{ steps.restore.outputs.session }}
+          model: ${{ vars.CLAUDE_MODEL || 'sonnet' }}
+          oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - id: verdict
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: $SDLC classify-run --file "$EXECUTION_FILE" --stage implement --issue "$ISSUE"
+
+      - if: steps.verdict.outputs.kind == 'ok'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          BRANCH: ${{ steps.gate.outputs.branch }}
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+        run: $SDLC after-implement --issue "$ISSUE" --branch "$BRANCH" --session "$SESSION"
+      - if: steps.verdict.outputs.kind == 'ok'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-session-${{ env.ISSUE }}
+          path: ${{ runner.temp }}/sdlc/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Anything but success: keep the work in progress, then pause (a limit) or block.
+      - if: steps.verdict.outputs.kind != '' && steps.verdict.outputs.kind != 'ok'
+        env:
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+        run: $SDLC save-wip --dir "$RUNNER_TEMP/wip" --session "$SESSION"
+      - if: steps.verdict.outputs.kind != '' && steps.verdict.outputs.kind != 'ok'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-wip-${{ env.ISSUE }}
+          path: ${{ runner.temp }}/wip/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: contains(fromJSON('["usage_limit","overloaded"]'), steps.verdict.outputs.kind)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_WORK: ${{ steps.gate.outputs.work }}
+          KIND: ${{ steps.verdict.outputs.kind }}
+          RESET: ${{ steps.verdict.outputs.reset_at }}
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+        run: $SDLC pause --kind "$KIND" --issue "$ISSUE" --reset-at "$RESET" --session "$SESSION" --artifact "sdlc-wip-$ISSUE"
+      - if: steps.verdict.outputs.kind != '' && !contains(fromJSON('["ok","usage_limit","overloaded"]'), steps.verdict.outputs.kind)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_WORK: ${{ steps.gate.outputs.work }}
+          SDLC_MESSAGE: ${{ steps.verdict.outputs.message }}
+          KIND: ${{ steps.verdict.outputs.kind }}
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+        run: |
+          $SDLC failed --issue "$ISSUE" --kind "$KIND" --session "$SESSION" --artifact "sdlc-wip-$ISSUE"
+          exit 1

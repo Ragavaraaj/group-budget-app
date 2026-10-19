@@ -1,0 +1,248 @@
+name: SDLC fix
+
+# Fixes a board pull request: a red CI run (reading the failed run's `e2e-results` and
+# `playwright-report` artifacts and its failed log), review findings (the AI's or a person's), or a
+# merge conflict (a merge of main, never a rebase). Replies and thread resolutions are posted by
+# the CLI from Claude's structured output. Three CI fixes or three review rounds, then Blocked.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: number
+      reason:
+        description: What to fix
+        required: true
+        type: choice
+        options: [ci, review, conflict]
+      failed_run:
+        description: The failed CI run (for ci)
+        required: false
+        type: string
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: sdlc-fix-${{ inputs.pr || github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write # read the failed run's artifacts and logs, and re-run a flaky job once
+  id-token: write
+
+env:
+  PR: ${{ inputs.pr || github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+  REASON: ${{ inputs.reason || (github.event_name == 'workflow_run' && 'ci') || 'review' }}
+  FAILED_RUN: ${{ inputs.failed_run || github.event.workflow_run.id }}
+  FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+  PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+  PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+  SDLC_OWNER: ${{ vars.SDLC_OWNER }}
+  SDLC_ENABLED: ${{ vars.SDLC_ENABLED }}
+  SDLC_MAX_PARALLEL: ${{ vars.SDLC_MAX_PARALLEL }}
+  SDLC_SIMULATE_LIMIT: ${{ vars.SDLC_SIMULATE_LIMIT }}
+  SDLC: node .sdlc-cli/tools/sdlc/src/cli.ts
+  WRANGLER_SEND_METRICS: 'false'
+
+jobs:
+  fix:
+    name: Fix #${{ inputs.pr || github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }} (${{ inputs.reason || (github.event_name == 'workflow_run' && 'ci') || 'review' }})
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.pull_requests[0].number) ||
+      (github.event_name == 'pull_request_review' &&
+       github.event.review.state != 'approved' &&
+       github.event.review.user.type != 'Bot' &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association) &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefName,isCrossRepository,state > "$RUNNER_TEMP/pr.json"
+          if [ "$(jq -r .isCrossRepository "$RUNNER_TEMP/pr.json")" = true ] || [ "$(jq -r .state "$RUNNER_TEMP/pr.json")" != OPEN ]; then
+            echo "Not an open pull request from this repository; nothing to do."
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$(jq -r .headRefName "$RUNNER_TEMP/pr.json")" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.head.outputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.head.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - if: steps.head.outputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: .sdlc-cli
+          sparse-checkout: |
+            tools/sdlc
+            .github/actions
+          persist-credentials: false
+      - if: steps.head.outputs.ref != ''
+        run: echo '.sdlc-cli/' >> .git/info/exclude
+      - if: steps.head.outputs.ref != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - id: gate
+        if: steps.head.outputs.ref != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+        run: $SDLC gate --stage fix --pr "$PR" --reason "$REASON" --failed-run "$FAILED_RUN" --failed-sha "$FAILED_SHA"
+
+      - if: steps.gate.outputs.proceed == 'true'
+        uses: ./.sdlc-cli/.github/actions/agent-env
+        with:
+          install: 'true'
+          browsers: ${{ env.REASON == 'ci' && 'true' || 'false' }}
+
+      # What CI already found, so the fixer starts from the failure instead of re-running the suite.
+      - if: steps.gate.outputs.proceed == 'true' && env.REASON == 'ci'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-results
+          run-id: ${{ env.FAILED_RUN }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/ci
+      - if: steps.gate.outputs.proceed == 'true' && env.REASON == 'ci'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: playwright-report
+          run-id: ${{ env.FAILED_RUN }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/ci/playwright-report
+      - if: steps.gate.outputs.proceed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci"
+          if [ "$REASON" = ci ] && [ -n "$FAILED_RUN" ]; then
+            gh run view "$FAILED_RUN" --repo "$GITHUB_REPOSITORY" --log-failed | tail -n 3000 > "$RUNNER_TEMP/ci/failed.log" || true
+          fi
+          git fetch --no-tags origin main
+          $SDLC threads --pr "$PR" --out "$RUNNER_TEMP/threads.json"
+
+      - id: resume
+        if: steps.gate.outputs.proceed == 'true' && steps.gate.outputs.resume_run != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.gate.outputs.resume_artifact }}
+          run-id: ${{ steps.gate.outputs.resume_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/resume
+      - id: restore
+        if: steps.resume.outcome == 'success'
+        run: $SDLC restore-wip --dir "$RUNNER_TEMP/resume"
+
+      - id: claude
+        if: steps.gate.outputs.proceed == 'true'
+        uses: ./.sdlc-cli/.github/actions/claude-run
+        with:
+          prompt: |
+            Use the `sdlc-fix` skill for pull request #${{ env.PR }} in ${{ github.repository }}. Reason: ${{ env.REASON }}.
+            The branch `${{ steps.head.outputs.ref }}` is checked out; push your commits to it.
+            CI evidence, when present: ${{ runner.temp }}/ci (e2e-results.json, playwright-report/, failed.log).
+            Open review threads: ${{ runner.temp }}/threads.json.
+            Return the verdict, replies and resolved threads in your structured output; the pipeline posts them.
+          allowed-tools: >-
+            Read, Glob, Grep, LS, Edit, MultiEdit, Write, Skill, Task, Agent, TodoWrite,
+            Bash(npm run:*), Bash(npm test:*), Bash(npm ci), Bash(npm install:*),
+            Bash(npx playwright test:*), Bash(npx biome:*), Bash(npx vitest:*), Bash(npx tsc:*),
+            Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*),
+            Bash(git add:*), Bash(git commit:*), Bash(git checkout:*), Bash(git fetch:*),
+            Bash(git merge:*), Bash(git push:*), Bash(git rev-parse:*), Bash(git rm:*),
+            Bash(git mv:*), Bash(git stash:*), Bash(git merge-base:*),
+            Bash(gh issue view:*), Bash(gh issue list:*), Bash(gh issue create:*),
+            Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh run view:*),
+            Bash(graphify:*), Bash(ls:*), Bash(cat:*), Bash(mkdir:*), Bash(mktemp:*)
+          max-turns: '150'
+          schema: .sdlc-cli/tools/sdlc/schemas/fix.json
+          resume: ${{ steps.restore.outputs.session }}
+          model: ${{ vars.CLAUDE_MODEL || 'sonnet' }}
+          oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - id: verdict
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          ISSUE: ${{ steps.gate.outputs.issue }}
+        run: $SDLC classify-run --file "$EXECUTION_FILE" --stage fix --issue "$ISSUE"
+
+      - if: steps.verdict.outputs.kind == 'ok'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_WORK: ${{ steps.gate.outputs.work }}
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+        run: $SDLC after-fix --pr "$PR" --session "$SESSION"
+      - if: steps.verdict.outputs.kind == 'ok'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-session-${{ steps.gate.outputs.issue }}
+          path: ${{ runner.temp }}/sdlc/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - if: steps.verdict.outputs.kind != '' && steps.verdict.outputs.kind != 'ok'
+        env:
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+        run: $SDLC save-wip --dir "$RUNNER_TEMP/wip" --session "$SESSION"
+      - if: steps.verdict.outputs.kind != '' && steps.verdict.outputs.kind != 'ok'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-wip-${{ steps.gate.outputs.issue }}
+          path: ${{ runner.temp }}/wip/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: contains(fromJSON('["usage_limit","overloaded"]'), steps.verdict.outputs.kind)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_WORK: ${{ steps.gate.outputs.work }}
+          KIND: ${{ steps.verdict.outputs.kind }}
+          RESET: ${{ steps.verdict.outputs.reset_at }}
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+          ISSUE: ${{ steps.gate.outputs.issue }}
+        run: $SDLC pause --kind "$KIND" --issue "$ISSUE" --reset-at "$RESET" --session "$SESSION" --artifact "sdlc-wip-$ISSUE"
+      - if: steps.verdict.outputs.kind != '' && !contains(fromJSON('["ok","usage_limit","overloaded"]'), steps.verdict.outputs.kind)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_WORK: ${{ steps.gate.outputs.work }}
+          SDLC_MESSAGE: ${{ steps.verdict.outputs.message }}
+          KIND: ${{ steps.verdict.outputs.kind }}
+          SESSION: ${{ steps.verdict.outputs.session_id }}
+          ISSUE: ${{ steps.gate.outputs.issue }}
+        run: |
+          $SDLC failed --issue "$ISSUE" --kind "$KIND" --session "$SESSION" --artifact "sdlc-wip-$ISSUE"
+          exit 1

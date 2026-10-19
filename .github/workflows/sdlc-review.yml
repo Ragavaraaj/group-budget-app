@@ -1,0 +1,140 @@
+name: SDLC review
+
+# The AI review of every pull request from this repository: specialist reviewers in parallel,
+# findings posted as one review by the CLI (Claude itself posts nothing), and the AI's own earlier
+# threads resolved once fixed. On a board pull request, blocking findings start a fix round;
+# none moves the card to "Awaiting your approval" and asks the owner for a review.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: number
+
+# A newer push makes the running review stale.
+concurrency:
+  group: sdlc-review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+  id-token: write
+
+env:
+  PR: ${{ github.event.pull_request.number || inputs.pr }}
+  PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+  PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+  SDLC_OWNER: ${{ vars.SDLC_OWNER }}
+  SDLC_ENABLED: ${{ vars.SDLC_ENABLED }}
+  SDLC_MAX_PARALLEL: ${{ vars.SDLC_MAX_PARALLEL }}
+  SDLC_REVIEW_DEPTH: ${{ vars.SDLC_REVIEW_DEPTH }}
+  SDLC_SIMULATE_LIMIT: ${{ vars.SDLC_SIMULATE_LIMIT }}
+  SDLC: node .sdlc-cli/tools/sdlc/src/cli.ts
+
+jobs:
+  review:
+    name: AI review of #${{ github.event.pull_request.number || inputs.pr }}
+    # Forks get no secrets, so they are not reviewed here; drafts wait until they are ready.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr) }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: .sdlc-cli
+          sparse-checkout: |
+            tools/sdlc
+            .github/actions
+          persist-credentials: false
+      - run: echo '.sdlc-cli/' >> .git/info/exclude
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+        run: $SDLC gate --stage review --pr "$PR"
+
+      - if: steps.gate.outputs.proceed == 'true'
+        uses: ./.sdlc-cli/.github/actions/agent-env
+      - if: steps.gate.outputs.proceed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --no-tags origin main
+          $SDLC threads --pr "$PR" --out "$RUNNER_TEMP/threads.json"
+
+      - id: claude
+        if: steps.gate.outputs.proceed == 'true'
+        uses: ./.sdlc-cli/.github/actions/claude-run
+        with:
+          prompt: |
+            Use the `sdlc-review` skill for pull request #${{ env.PR }} in ${{ github.repository }}.
+            Its head (${{ steps.gate.outputs.head_sha }}) is checked out; diff it against origin/main.
+            Open review threads are in ${{ runner.temp }}/threads.json. Review depth: ${{ steps.gate.outputs.review_depth }}.
+            Return the findings in your structured output; do not post anything yourself.
+          allowed-tools: >-
+            Read, Glob, Grep, LS, Skill, Task, Agent, TodoWrite,
+            Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git merge-base:*),
+            Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh issue view:*), Bash(gh issue list:*),
+            Bash(graphify:*), Bash(ls:*), Bash(cat:*)
+          max-turns: '80'
+          schema: .sdlc-cli/tools/sdlc/schemas/review.json
+          model: ${{ vars.CLAUDE_MODEL || 'sonnet' }}
+          oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - id: verdict
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          ISSUE: ${{ steps.gate.outputs.issue }}
+        run: $SDLC classify-run --file "$EXECUTION_FILE" --stage review --issue "$ISSUE"
+
+      - if: steps.verdict.outputs.kind == 'ok'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
+        run: $SDLC after-review --pr "$PR" --head-sha "$HEAD_SHA"
+
+      - if: contains(fromJSON('["usage_limit","overloaded"]'), steps.verdict.outputs.kind)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_WORK: ${{ steps.gate.outputs.work }}
+          KIND: ${{ steps.verdict.outputs.kind }}
+          RESET: ${{ steps.verdict.outputs.reset_at }}
+          ISSUE: ${{ steps.gate.outputs.issue }}
+        run: $SDLC pause --kind "$KIND" --issue "$ISSUE" --reset-at "$RESET"
+      - if: steps.verdict.outputs.kind != '' && !contains(fromJSON('["ok","usage_limit","overloaded"]'), steps.verdict.outputs.kind)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SDLC_WORK: ${{ steps.gate.outputs.work }}
+          SDLC_MESSAGE: ${{ steps.verdict.outputs.message }}
+          KIND: ${{ steps.verdict.outputs.kind }}
+          ISSUE: ${{ steps.gate.outputs.issue }}
+        run: |
+          $SDLC failed --issue "$ISSUE" --kind "$KIND"
+          exit 1
