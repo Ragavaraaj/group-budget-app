@@ -19,6 +19,7 @@
     "format": "biome format --write .",
     "test": "npm run test --workspaces --if-present",
     "e2e": "npm run build && playwright test",
+    "e2e:webkit": "npm run build && playwright test --project=mobile-webkit",
     "db:generate": "npm run db:generate -w @budget/server",
     "check:ts-only": "! git ls-files '*.js' '*.jsx' '*.mjs' '*.cjs' | grep .",
     "lint:fix": "biome check --write .",

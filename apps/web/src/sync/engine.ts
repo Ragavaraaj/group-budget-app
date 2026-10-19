@@ -49,12 +49,10 @@ export interface SyncEvents {
 }
 
 export interface Environment {
-  isOnline(): boolean;
   isVisible(): boolean;
 }
 
 const browserEnvironment: Environment = {
-  isOnline: () => navigator.onLine,
   isVisible: () => document.visibilityState === 'visible',
 };
 
@@ -178,12 +176,12 @@ export class SyncEngine {
     this.timer = null;
   }
 
-  private schedule() {
+  private schedule(delay?: number) {
     this.clearTimer();
     if (!this.started || !this.env.isVisible() || this.status.state === 'signed_out') return;
     // With the live connection up the server says when there is news, so polling only has to
     // catch what a dropped message could miss: the slowest interval will do.
-    const delay = this.live ? this.maxPollMs : this.interval;
+    delay ??= this.live ? this.maxPollMs : this.interval;
     this.timer = setTimeout(() => void this.trigger(), delay);
   }
 
@@ -239,12 +237,12 @@ export class SyncEngine {
 
   private async cycle(): Promise<void> {
     this.clearTimer();
-    if (!this.env.isOnline()) {
-      this.setStatus({ state: 'offline', caughtUp: false });
-      this.scheduleNext(false); // the `online` event normally wakes us; this is the safety net
-      return;
-    }
-    this.setStatus({ state: 'syncing' });
+    // `navigator.onLine` is not asked here: on iOS it can say "offline" on a working connection
+    // (after waking, on a VPN or Private Relay) and may never fire `online` again, which would
+    // leave sync stuck. The plain HTTP request is the truth: if it can't get an answer it throws
+    // a NetworkError, and the cycle reports offline below and retries on the poll.
+    // Already "offline": keep saying so while trying again, rather than flickering "Syncing".
+    if (this.status.state !== 'offline') this.setStatus({ state: 'syncing' });
     this.sentThisCycle = false;
 
     let changed = false;
@@ -279,6 +277,11 @@ export class SyncEngine {
       }
       if (failed.original instanceof NetworkError) {
         this.setStatus({ state: 'offline', caughtUp: false });
+        // Don't back off: the `online` event is not reliable on iOS, so the connection coming
+        // back is noticed by trying again at the normal pace. A request that can't connect is cheap.
+        this.interval = this.pollMs;
+        this.schedule(this.pollMs);
+        return;
       } else {
         this.fail(held !== null && held !== failed ? [held, failed] : [failed]);
       }
