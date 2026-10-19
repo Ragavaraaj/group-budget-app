@@ -35,6 +35,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:ts-only
+      - run: npm run check:test-layout # unit tests live in each package's test/, never in src/
       - run: npm run lint # Biome: lint + format + import order
       - run: npm run typecheck
       - run: npm test

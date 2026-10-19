@@ -14,16 +14,17 @@
   "scripts": {
     "dev": "npm run db:migrate:local && concurrently -k -n worker,web -c blue,green \"npm run dev -w @budget/server\" \"npm run dev -w @budget/web\"",
     "build": "npm run build -w @budget/web && npm run build -w @budget/server",
+    "deploy": "npm run build -w @budget/web && npm run deploy -w @budget/server",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
+    "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test": "npm run test --workspaces --if-present",
     "e2e": "npm run build && playwright test",
     "e2e:webkit": "npm run build && playwright test --project=mobile-webkit",
-    "db:generate": "npm run db:generate -w @budget/server",
     "check:ts-only": "! git ls-files '*.js' '*.jsx' '*.mjs' '*.cjs' | grep .",
-    "lint:fix": "biome check --write .",
-    "deploy": "npm run build -w @budget/web && npm run deploy -w @budget/server",
+    "check:test-layout": "! git ls-files '*/src/*.test.ts' '*/src/*.spec.ts' | grep .",
+    "db:generate": "npm run db:generate -w @budget/server",
     "db:migrate:local": "npm run db:migrate:local -w @budget/server"
   },
   "devDependencies": {
