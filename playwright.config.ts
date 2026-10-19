@@ -14,10 +14,25 @@ export default defineConfig({
   use: {
     baseURL: ORIGIN,
     trace: 'on-first-retry',
-    // Lets a sandbox with a pre-installed Chromium run the suite; unset in CI.
-    launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined },
   },
-  projects: [{ name: 'mobile-chromium', use: { ...devices['Pixel 7'] } }],
+  projects: [
+    {
+      name: 'mobile-chromium',
+      use: {
+        ...devices['Pixel 7'],
+        // Lets a sandbox with a pre-installed Chromium run the suite; unset in CI.
+        launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined },
+      },
+    },
+    {
+      // Every browser on an iPhone is WebKit, so this is the nearest thing to one that CI has. It
+      // runs only the specs about what differs there (live updates, the fallback to plain HTTP);
+      // the rest of the suite is about the app, which Chromium already covers.
+      name: 'mobile-webkit',
+      testMatch: /(ios-sync|live)\.spec\.ts/,
+      use: { ...devices['iPhone 15'] },
+    },
+  ],
   webServer: {
     command: 'npm run e2e:server -w @budget/server',
     url: `${ORIGIN}/api/healthz`,
