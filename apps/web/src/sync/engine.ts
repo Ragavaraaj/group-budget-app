@@ -49,12 +49,10 @@ export interface SyncEvents {
 }
 
 export interface Environment {
-  isOnline(): boolean;
   isVisible(): boolean;
 }
 
 const browserEnvironment: Environment = {
-  isOnline: () => navigator.onLine,
   isVisible: () => document.visibilityState === 'visible',
 };
 
@@ -239,11 +237,10 @@ export class SyncEngine {
 
   private async cycle(): Promise<void> {
     this.clearTimer();
-    if (!this.env.isOnline()) {
-      this.setStatus({ state: 'offline', caughtUp: false });
-      this.scheduleNext(false); // the `online` event normally wakes us; this is the safety net
-      return;
-    }
+    // `navigator.onLine` is not asked here: on iOS it can say "offline" on a working connection
+    // (after waking, on a VPN or Private Relay) and may never fire `online` again, which would
+    // leave sync stuck. The plain HTTP request is the truth: if it can't get an answer it throws
+    // a NetworkError, and the cycle reports offline below and retries on the poll.
     this.setStatus({ state: 'syncing' });
     this.sentThisCycle = false;
 

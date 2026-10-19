@@ -18,13 +18,11 @@ import { type Environment, SyncEngine, type SyncEvents } from './engine';
 const ME = uuidv7();
 const G = uuidv7();
 let db: BudgetDb;
-let online = true;
 let visible = true;
 let consoleError: MockInstance;
-const environment: Environment = { isOnline: () => online, isVisible: () => visible };
+const environment: Environment = { isVisible: () => visible };
 
 beforeEach(async () => {
-  online = true;
   visible = true;
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   db = new BudgetDb(`test-${uuidv7()}`);
@@ -32,6 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -144,16 +143,33 @@ describe('pushing', () => {
       expect(await db.outbox.count()).toBe(3);
     });
 
-    it('does not even try while offline, then catches up', async () => {
+    it('tries the request even when the browser says it is offline, and syncs if it gets through', async () => {
+      // iOS can report "offline" on a working connection and never fire `online` again.
+      vi.stubGlobal('navigator', { ...navigator, onLine: false });
       await queueExpenses(2);
       const api = new FakeApi();
       const engine = engineFor(api);
-      online = false;
       await engine.trigger();
-      expect(api.pushes).toHaveLength(0);
-      expect(engine.getSnapshot().state).toBe('offline');
+      expect(api.pushes.flat()).toHaveLength(2);
+      expect(await db.outbox.count()).toBe(0);
+      expect(engine.getSnapshot().state).toBe('idle');
+    });
 
-      online = true;
+    it('reports offline when the request cannot get through, then catches up', async () => {
+      await queueExpenses(2);
+      let reachable = false;
+      const api = new FakeApi();
+      const push = api.push.bind(api);
+      api.push = async (mutations) => {
+        if (!reachable) throw new NetworkError();
+        return push(mutations);
+      };
+      const engine = engineFor(api);
+      await engine.trigger();
+      expect(engine.getSnapshot().state).toBe('offline');
+      expect(await db.outbox.count()).toBe(2);
+
+      reachable = true;
       await engine.trigger();
       expect(await db.outbox.count()).toBe(0);
       expect(engine.getSnapshot().state).toBe('idle');
@@ -275,11 +291,15 @@ describe('pushing', () => {
 
     it('drops the reason as soon as the state is no longer an error', async () => {
       await queueExpenses(1);
-      const engine = engineFor(new FakeApi(() => Promise.reject(httpError(503))));
+      let engine = engineFor(new FakeApi(() => Promise.reject(httpError(503))));
       await engine.trigger();
       expect(engine.getSnapshot().failure).not.toBeNull();
 
-      online = false;
+      engine = engineFor(
+        new FakeApi(() => {
+          throw new NetworkError();
+        }),
+      );
       await engine.trigger();
       expect(engine.getSnapshot().state).toBe('offline');
       expect(engine.getSnapshot().failure).toBeNull();
@@ -322,8 +342,13 @@ describe('pushing', () => {
 
       // A clean sync catches up; being offline does not.
       expect(await received(new FakeApi())).toMatchObject({ state: 'idle', caughtUp: true });
-      online = false;
-      expect(await received(new FakeApi())).toMatchObject({ state: 'offline', caughtUp: false });
+      expect(
+        await received(
+          new FakeApi(undefined, () => {
+            throw new NetworkError();
+          }),
+        ),
+      ).toMatchObject({ state: 'offline', caughtUp: false });
     });
 
     it('writes a failure that keeps repeating to the console once', async () => {
