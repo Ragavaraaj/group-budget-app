@@ -160,9 +160,11 @@ limits with your own use of Claude, and hitting one is expected.
 
 1. **Claude**: run `claude setup-token` while signed in to your Claude subscription and store the
    token as the repository secret `CLAUDE_CODE_OAUTH_TOKEN` (or use `ANTHROPIC_API_KEY` for the API).
+   Use Settings, Secrets and variables, Actions, **Repository secrets**: the pipeline's jobs declare
+   no environment, so a secret stored in an environment such as `production` never reaches them.
    The Claude GitHub App must be installed on the repository (`/install-github-app` in Claude Code).
 2. **The board token**: create a classic personal access token with the `project` and `public_repo`
-   scopes and store it as the secret `SDLC_TOKEN`. A personal project cannot be written with
+   scopes and store it as the repository secret `SDLC_TOKEN`. A personal project cannot be written with
    `GITHUB_TOKEN` or an app token, and merges made with it start CI on `main`.
 3. **Variables** (Settings, Secrets and variables, Actions, Variables): `PROJECT_NUMBER` (the number
    in the board's URL). Optional: `SDLC_MAX_PARALLEL`, `SDLC_REVIEW_DEPTH`, `CLAUDE_MODEL`,
@@ -206,5 +208,10 @@ A test that shows an open bug is marked `test.fail(true, 'Bug #<n>: …')`, and
   control issue says until when). A dispatch that never started is sent again after 90 minutes.
 - **Blocked**: the card's last comment says why; the run link shows the details. Fix what it asks,
   then `/resume`.
+- **"No Claude credentials"**: the token is missing, or it is an environment secret; move it to the
+  repository secrets.
+- **"This pull request changes .github/workflows/sdlc-…"**: Claude Code's action only runs a workflow
+  file identical to `main`'s, so a pull request that edits `sdlc-review.yml` or `sdlc-fix.yml` is not
+  reviewed or fixed by them until it is merged. The gate skips such a run instead of failing it.
 - **The AI review never passes**: three rounds then Blocked; read the open threads, decide, and reply
   or resolve them yourself before `/resume`.

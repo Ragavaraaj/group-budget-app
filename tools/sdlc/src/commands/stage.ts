@@ -2,6 +2,7 @@
  * The steps around each Claude run: the gate before it (may it run now?), reading how it ended,
  * pausing on a usage limit, and putting its results on the issue, the board and the pull request.
  */
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { branchName, changeTypeFor, isValidBranch } from '../branch.ts';
@@ -43,7 +44,14 @@ import {
 import { buildReview, type Finding, REVIEW_MARKER, withFooter } from '../review.ts';
 import { formatIst } from '../state.ts';
 import { saveSession } from '../wip.ts';
-import { canResume, dispatchFor, parseWork, runningStage, runningStatus } from '../work.ts';
+import {
+  canResume,
+  dispatchFor,
+  parseWork,
+  runningStage,
+  runningStatus,
+  workflowFileOffDefault,
+} from '../work.ts';
 import { mergeCheck } from './merge.ts';
 
 type Flags = Record<string, string>;
@@ -62,6 +70,15 @@ function workFrom(flags: Flags): PendingWork {
   return work;
 }
 
+/** The run's workflow file, when it comes from a pull request and differs from origin/main. */
+function workflowChangedFromMain(): string | null {
+  const path = workflowFileOffDefault(process.env.GITHUB_WORKFLOW_REF);
+  if (!path) return null;
+  // 0: identical, 1: differs; anything else (no origin/main fetched) is left to the action.
+  const diff = spawnSync('git', ['diff', '--quiet', 'origin/main', 'HEAD', '--', path]);
+  return diff.status === 1 ? path : null;
+}
+
 function skip(why: string): void {
   setOutput('proceed', 'false');
   summary(`**Not running now:** ${why}`);
@@ -75,7 +92,13 @@ export async function gate(env: Env, flags: Flags): Promise<void> {
   if (!env.enabled) return skip('the pipeline is switched off (SDLC_ENABLED=false)');
   if (process.env.SDLC_HAS_CLAUDE === 'false') {
     return skip(
-      'no Claude credentials: add the CLAUDE_CODE_OAUTH_TOKEN secret (docs/ai-sdlc.md, "Setup")',
+      'no Claude credentials: add CLAUDE_CODE_OAUTH_TOKEN as a repository secret, not an environment secret (docs/ai-sdlc.md, "Setup")',
+    );
+  }
+  const changed = workflowChangedFromMain();
+  if (changed) {
+    return skip(
+      `this pull request changes ${changed}, and Claude Code only runs a workflow that matches main's copy; it runs once this is merged`,
     );
   }
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { canResume, dispatchFor, parseWork, runningStage, runningStatus } from '../src/work.ts';
+import {
+  canResume,
+  dispatchFor,
+  parseWork,
+  runningStage,
+  runningStatus,
+  workflowFileOffDefault,
+} from '../src/work.ts';
 
 describe('parseWork', () => {
   it('reads what the gate wrote and drops anything unexpected', () => {
@@ -71,5 +78,24 @@ describe('canResume', () => {
     expect(canResume(null, { kind: 'implement' })).toBe(false);
     expect(canResume(session('plan'), { kind: 'plan' })).toBe(false);
     expect(canResume(session('implement'), { kind: 'review' })).toBe(false);
+  });
+});
+
+describe('workflowFileOffDefault', () => {
+  it('names the file when the run uses a pull request copy of its workflow', () => {
+    expect(
+      workflowFileOffDefault('acme/app/.github/workflows/sdlc-review.yml@refs/pull/24/merge'),
+    ).toBe('.github/workflows/sdlc-review.yml');
+    expect(
+      workflowFileOffDefault('acme/app/.github/workflows/sdlc-fix.yml@refs/heads/feat/x'),
+    ).toBe('.github/workflows/sdlc-fix.yml');
+  });
+
+  it('is null for the default branch, or when there is no ref', () => {
+    expect(
+      workflowFileOffDefault('acme/app/.github/workflows/sdlc-fix.yml@refs/heads/main'),
+    ).toBeNull();
+    expect(workflowFileOffDefault(undefined)).toBeNull();
+    expect(workflowFileOffDefault('garbage')).toBeNull();
   });
 });

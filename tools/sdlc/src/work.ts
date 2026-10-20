@@ -93,3 +93,18 @@ export function canResume(
   if (work.kind === 'fix') return session.kind === 'implement' || session.kind === 'fix';
   return false;
 }
+
+/**
+ * The workflow file a run uses when it comes from somewhere other than the default branch, from
+ * `GITHUB_WORKFLOW_REF` (`owner/repo/.github/workflows/x.yml@refs/pull/24/merge`), else null.
+ * Claude Code's action refuses to run a workflow file that differs from the default branch's.
+ */
+export function workflowFileOffDefault(
+  workflowRef: string | undefined,
+  defaultBranch = 'main',
+): string | null {
+  const match = workflowRef?.match(/^[^/]+\/[^/]+\/(.+)@(.+)$/);
+  if (!match) return null;
+  const [, path, ref] = match;
+  return ref === `refs/heads/${defaultBranch}` ? null : (path ?? null);
+}
