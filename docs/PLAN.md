@@ -20,7 +20,8 @@ Status: **draft v6** · Scope: architecture and roadmap, split into the document
 | [Security](security.md) | CSRF, authorization, rate limiting, headers, secrets, dependencies |
 | [Infrastructure](infrastructure.md) | Cloudflare deploy, backups, limits, domain, cost |
 | [Testing](testing.md) | Test layers, e2e, static checks, CI gates |
-| [Known bugs](known-bugs.md) | Bugs found by the tests, with steps and the test that shows each (none open) |
+| [AI SDLC](ai-sdlc.md) | The board drives Claude in GitHub Actions: plan, implement, review, fix, merge; agents, skills, artifacts, usage limits |
+| [Bugs](https://github.com/Ragavaraaj/group-budget-app/issues?q=label%3Abug) | GitHub issues labelled `bug`, on the board (found by the tests or by people; none open) |
 | [Repository layout](repository-layout.md) | Folder structure, dependency rules, tooling decisions |
 | [Roadmap](roadmap.md) | Milestones M0–M4, status, decisions and open questions |
 | [Risks](risks.md) | Risk register and mitigations; parked React Server Components |
@@ -69,4 +70,5 @@ Status: **draft v6** · Scope: architecture and roadmap, split into the document
 | Currency   | **INR only**, integer paise, `Intl.NumberFormat('en-IN')` (lakh/crore grouping)                         | Removes FX and mixed-currency reports entirely                                                              | Add a `currency` column (default `'INR'`) via a normal migration                 |
 | Validation | **zod** schemas in `packages/shared`, used by web and server                                            | One definition of every API payload                                                                         | —                                                                                |
 | Tooling    | npm workspaces, **Wrangler**, Vitest 4 + Workers test pool, Playwright, **Biome**                       | Tests run in the real Workers runtime (`workerd`), so they catch what only works in Node                    | pnpm if workspaces get painful                                                   |
-| CI/CD      | GitHub Actions: checks on every PR; a merge to `main` re-checks, migrates D1 and deploys (`wrangler`)   | Free, simple                                                                                                | Cloudflare's own Git integration (Workers Builds)                                |
+| CI/CD      | GitHub Actions: checks on every PR; the app built once and its e2e tests sharded in three; a merge to `main` re-checks, migrates D1 and deploys that same build (`wrangler`) | Free, simple; deploy ships exactly what was tested                                                          | Cloudflare's own Git integration (Workers Builds)                                |
+| AI SDLC    | Cards on a GitHub Project board drive Claude in Actions: plan → approve → implement → AI review and fixes → your approval → merge ([AI SDLC](ai-sdlc.md)) | The owner decides twice (the plan, the merge); everything between is automated and visible on the board | Switch it off with `SDLC_ENABLED=false`; the repo works as before                 |

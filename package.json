@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "tools/*"
   ],
   "scripts": {
     "dev": "npm run db:migrate:local && concurrently -k -n worker,web -c blue,green \"npm run dev -w @budget/server\" \"npm run dev -w @budget/web\"",
@@ -24,6 +25,8 @@
     "e2e:webkit": "npm run build && playwright test --project=mobile-webkit",
     "check:ts-only": "! git ls-files '*.js' '*.jsx' '*.mjs' '*.cjs' | grep .",
     "check:test-layout": "! git ls-files '*/src/*.test.ts' '*/src/*.spec.ts' | grep .",
+    "check:bug-refs": "node tools/sdlc/src/cli.ts check-bug-refs",
+    "lint:claude": "node tools/sdlc/src/cli.ts lint-claude",
     "db:generate": "npm run db:generate -w @budget/server",
     "db:migrate:local": "npm run db:migrate:local -w @budget/server"
   },

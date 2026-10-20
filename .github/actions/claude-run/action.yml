@@ -1,0 +1,84 @@
+name: Run Claude
+description: >-
+  One Claude Code run for a pipeline stage: a stage skill as the prompt, the stage's tool allow-list,
+  an optional structured-output schema and an optional session to resume. It never fails the job on
+  its own; the caller classifies the run (`classify-run`) and decides.
+inputs:
+  prompt:
+    description: The prompt; for stages, one line naming the skill.
+    required: true
+  allowed-tools:
+    description: Comma-separated tool allow-list.
+    required: true
+  disallowed-tools:
+    description: Comma-separated tools refused even when an allow-list entry would match.
+    default: >-
+      Bash(git push --force:*),Bash(git push -f:*),Bash(git push --force-with-lease:*),
+      Bash(git push origin main:*),Bash(git push origin HEAD:main:*),Bash(git rebase:*),
+      Bash(git reset --hard:*),Bash(gh pr merge:*),Bash(gh api:*),Bash(gh secret:*),Bash(gh variable:*)
+  max-turns:
+    description: Turn budget for the run.
+    default: '80'
+  schema:
+    description: Path to a JSON schema for structured output, relative to the repository.
+    default: ''
+  resume:
+    description: A session id to resume (restored from an artifact first).
+    default: ''
+  model:
+    description: The orchestrating session's model alias; agents set their own.
+    default: sonnet
+  oauth-token:
+    description: CLAUDE_CODE_OAUTH_TOKEN (a Claude subscription).
+    default: ''
+  api-key:
+    description: ANTHROPIC_API_KEY (the API), if used instead.
+    default: ''
+outputs:
+  conclusion:
+    value: ${{ steps.claude.outputs.conclusion }}
+  execution_file:
+    value: ${{ steps.claude.outputs.execution_file }}
+  structured_output:
+    value: ${{ steps.claude.outputs.structured_output }}
+  session_id:
+    value: ${{ steps.claude.outputs.session_id }}
+  outcome:
+    value: ${{ steps.claude.outcome }}
+runs:
+  using: composite
+  steps:
+    - id: args
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        TURNS: ${{ inputs.max-turns }}
+        TOOLS: ${{ inputs.allowed-tools }}
+        DENY: ${{ inputs.disallowed-tools }}
+        SCHEMA: ${{ inputs.schema }}
+        RESUME: ${{ inputs.resume }}
+      run: |
+        set -euo pipefail
+        # Lists may be written across lines; join them, keeping the spaces inside each entry.
+        list() { echo "$1" | tr '\n' ' ' | sed -E 's/[[:space:]]*,[[:space:]]*/,/g; s/^[[:space:]]+//; s/[[:space:]]+$//'; }
+        delimiter="claude_args_$RANDOM$RANDOM"
+        {
+          echo "args<<$delimiter"
+          echo "--model $MODEL"
+          echo "--max-turns $TURNS"
+          echo "--allowedTools \"$(list "$TOOLS")\""
+          echo "--disallowedTools \"$(list "$DENY")\""
+          if [ -n "$SCHEMA" ]; then echo "--json-schema '$(jq -c . "$SCHEMA")'"; fi
+          if [ -n "$RESUME" ]; then echo "--resume $RESUME"; fi
+          echo "$delimiter"
+        } >> "$GITHUB_OUTPUT"
+    - id: claude
+      continue-on-error: true
+      uses: anthropics/claude-code-action@v1
+      with:
+        claude_code_oauth_token: ${{ inputs.oauth-token }}
+        anthropic_api_key: ${{ inputs.api-key }}
+        prompt: ${{ inputs.prompt }}
+        claude_args: ${{ steps.args.outputs.args }}
+        additional_permissions: |
+          actions: read

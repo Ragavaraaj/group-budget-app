@@ -1,0 +1,80 @@
+name: Bug
+description: Something in the app does not work as it should. Bugs are tracked here, on the board, not in files in the repository.
+labels: [bug, sdlc]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A bug filed here joins the board in Todo, and the pipeline plans a fix for you to approve
+        (docs/ai-sdlc.md). If a test shows the bug, it is marked `test.fail(true, 'Bug #<this issue>: …')`
+        until the fix lands.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - auth
+        - budgets
+        - categories
+        - expenses
+        - groups
+        - import
+        - insights
+        - recurring
+        - search
+        - settings
+        - sync
+        - layout
+        - design-system
+        - pwa
+        - live
+        - ci
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: >-
+        High: loses or corrupts data, or blocks sign-in. Medium: blocks a flow, or is wrong on a main
+        screen for everyone. Low: needs unusual input, or is wording or consistency.
+      options:
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: From signing in, numbered, with the data you used.
+      placeholder: |
+        1. Sign in, open …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happens instead; a screenshot at phone width helps.
+    validations:
+      required: true
+  - type: textarea
+    id: cause
+    attributes:
+      label: Cause
+      description: Where in the code, if known.
+  - type: input
+    id: test
+    attributes:
+      label: The test
+      description: The spec file and test title that shows it, if there is one.
+      placeholder: e2e/import-limits.spec.ts, "shows the first 500, …"

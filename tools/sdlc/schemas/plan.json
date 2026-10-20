@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_markdown", "type", "size", "risk", "questions", "context"],
+  "properties": {
+    "plan_markdown": {
+      "type": "string",
+      "description": "The plan in Markdown: goal, approach, steps by area, tests, docs, risks. It goes into the issue body; never write it to a file."
+    },
+    "type": { "type": "string", "enum": ["feat", "fix", "test", "chore"] },
+    "size": { "type": "string", "enum": ["S", "M", "L"] },
+    "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+    "questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Only questions that change what gets built; empty when the plan can go ahead."
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["areas", "files", "tests", "graph_notes"],
+      "properties": {
+        "areas": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["shared", "server", "sync", "ui", "e2e", "docs", "ci"]
+          }
+        },
+        "files": { "type": "array", "items": { "type": "string" } },
+        "tests": { "type": "array", "items": { "type": "string" } },
+        "graph_notes": { "type": "string" }
+      }
+    }
+  }
+}

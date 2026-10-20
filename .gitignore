@@ -27,3 +27,8 @@ data/
 graphify-out/graph.html
 graphify-out/.graphify_analysis.json
 graphify-out/.graphify_*
+
+# Playwright shard reports (CI merges them; locally they are throwaway)
+blob-report/
+all-blob-reports/
+e2e-results.json

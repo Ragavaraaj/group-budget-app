@@ -1,0 +1,129 @@
+name: SDLC board
+
+# Keeps the GitHub Project board and the pipeline in step, without Claude:
+#   - every ten minutes, the poller: drafts become issues, new cards are planned, dragged cards are
+#     picked up, paused work resumes after the usage-limit reset, stuck cards move to Blocked, and
+#     the merge gate is checked (resolving a review thread fires no event);
+#   - owner comments: /approve, /replan, /resume on a card; /resume-now and /pause on the control
+#     issue;
+#   - issues: a bug from a trusted author joins the board; a closed issue is Done;
+#   - a pull request merged by hand moves its card to Done; CI on main marks cards Deployed.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+  issues:
+    types: [opened, labeled, closed]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [closed]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+# One poll at a time (a newer one replaces a queued one); events each run on their own.
+concurrency:
+  group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'sdlc-poll' || format('sdlc-board-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: write # start the stage workflows
+
+env:
+  PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+  PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+  SDLC_OWNER: ${{ vars.SDLC_OWNER }}
+  SDLC_ENABLED: ${{ vars.SDLC_ENABLED }}
+  SDLC_MAX_PARALLEL: ${{ vars.SDLC_MAX_PARALLEL }}
+
+jobs:
+  poll:
+    name: Poll the board
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/sdlc
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+        run: node tools/sdlc/src/cli.ts poll
+
+  command:
+    name: Owner command
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      (startsWith(github.event.comment.body, '/approve') || startsWith(github.event.comment.body, '/replan') ||
+       startsWith(github.event.comment.body, '/resume') || startsWith(github.event.comment.body, '/pause'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/sdlc
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+        run: node tools/sdlc/src/cli.ts comment-command
+
+  event:
+    name: Board event
+    if: >-
+      github.event_name == 'issues' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          sparse-checkout: tools/sdlc
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+        run: node tools/sdlc/src/cli.ts board-event
+
+  deployed:
+    name: Mark deployed cards
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/sdlc
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDLC_TOKEN: ${{ secrets.SDLC_TOKEN }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: node tools/sdlc/src/cli.ts deployed --sha "$SHA" --conclusion "$CONCLUSION"

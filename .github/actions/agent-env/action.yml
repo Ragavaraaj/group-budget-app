@@ -1,0 +1,26 @@
+name: Agent environment
+description: What a Claude run needs before it starts. Node from .nvmrc and Graphify always; the dependencies and the Playwright browsers when it will build or test.
+inputs:
+  install:
+    description: Run npm ci (and copy the local settings), for runs that build or test.
+    default: 'false'
+  browsers:
+    description: Install the Playwright browsers too.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        cache: ${{ inputs.install == 'true' && 'npm' || '' }}
+    - if: inputs.install == 'true'
+      shell: bash
+      run: |
+        npm ci
+        cp apps/server/.dev.vars.example apps/server/.dev.vars
+    - if: inputs.browsers == 'true'
+      uses: ./.github/actions/playwright-browsers
+    # The same Graphify that built graphify-out/, so queries read the committed graph as it is.
+    - shell: bash
+      run: pipx install graphifyy==0.9.92 >/dev/null && graphify --version

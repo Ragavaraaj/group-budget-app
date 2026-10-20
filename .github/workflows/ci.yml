@@ -5,6 +5,10 @@ name: CI
 #     used to double every run);
 #   - a merge to main runs the checks again and then deploys to Cloudflare;
 #   - "Run workflow" on main redeploys without a code change.
+#
+# The app is built once, in `check`, and handed on as the `web-dist` artifact: the e2e shards test
+# that build, and deploy ships that same build. Nothing is built twice, and what ships is what was
+# tested.
 on:
   push:
     branches: [main]
@@ -36,21 +40,36 @@ jobs:
       - run: npm ci
       - run: npm run check:ts-only
       - run: npm run check:test-layout # unit tests live in each package's test/, never in src/
+      - run: npm run check:bug-refs # every test.fail(...) names its bug issue
+      - run: npm run lint:claude # agents and skills: frontmatter, references, model and effort
       - run: npm run lint # Biome: lint + format + import order
       - run: npm run typecheck
       - run: npm test
       # Builds the web app, then bundles the Worker with a dry-run deploy (catches config and
       # bundling problems without touching Cloudflare).
       - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist/
+          if-no-files-found: error
+          retention-days: 7
       # Production dependencies only: dev tooling never ships. The dev-tooling advisories (undici
       # and sharp inside miniflare, esbuild inside drizzle-kit) are fixed with the `overrides` in
       # the root package.json, so a plain `npm audit` is clean too; drop an override once its
       # parent depends on a fixed version itself.
       - run: npm audit --omit=dev --audit-level=high
 
-  e2e:
-    name: End-to-end (Chromium and WebKit, wrangler dev)
+  # The suite split in three, each shard against the build from `check` (no rebuild). Each shard
+  # runs its own `wrangler dev` with its own local database.
+  e2e-shard:
+    name: End-to-end shard ${{ matrix.shard }}/3
+    needs: check
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,14 +77,64 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
-      - run: npm run e2e
+      - uses: ./.github/actions/playwright-browsers
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+      - run: npx playwright test --shard=${{ matrix.shard }}/3 --reporter=blob,github
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: ${{ !cancelled() }}
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
+
+  # Keeps the name the single e2e job had, so a required check on it still matches. Merges the
+  # shards into one HTML report for people and one JSON report for the pipeline's CI fixer.
+  e2e:
+    name: End-to-end (Chromium and WebKit, wrangler dev)
+    needs: e2e-shard
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # Nothing to merge when the shards never ran (the checks failed first).
+      - if: needs.e2e-shard.result != 'skipped'
+        run: npm ci
+      - if: needs.e2e-shard.result != 'skipped'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: blob-report-*
+          path: all-blob-reports
+          merge-multiple: true
+      - name: Merge the shard reports
+        if: needs.e2e-shard.result != 'skipped'
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-results.json
+        run: npx playwright merge-reports --reporter html,json ./all-blob-reports
+      - uses: actions/upload-artifact@v4
+        if: needs.e2e-shard.result != 'skipped'
+        with:
+          name: e2e-results
+          path: e2e-results.json
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: needs.e2e-shard.result == 'failure'
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+      - name: Pass only if every shard passed
+        env:
+          SHARDS: ${{ needs.e2e-shard.result }}
+        run: |
+          echo "Shards: $SHARDS"
+          test "$SHARDS" = success
 
   deploy:
     name: Deploy to Cloudflare
@@ -109,8 +178,12 @@ jobs:
           cache: npm
       - if: steps.ready.outputs.ready == 'true'
         run: npm ci
+      # The build the e2e tests ran against, not a new one.
       - if: steps.ready.outputs.ready == 'true'
-        run: npm run build -w @budget/web
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
 
       # Schema first: a new Worker may rely on it. Migrations are additive and forward-only, so
       # the previous Worker keeps working while this runs. The token is passed only to the two

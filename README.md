@@ -70,12 +70,35 @@ Dependency direction is `web → shared ← server`; `shared` imports nothing of
 | `npm run lint:fix` / `npm run format`   | Apply Biome's fixes / formatting                                          |
 | `npm run check:ts-only`                 | Fails if any `.js/.jsx/.mjs/.cjs` source file is tracked                  |
 | `npm run check:test-layout`             | Fails if a unit test is tracked under a `src/` folder instead of `test/`  |
+| `npm run check:bug-refs`                | Fails if a `test.fail(...)` does not name its bug issue (`'Bug #123: …'`) |
+| `npm run lint:claude`                   | Checks the custom agents and skills in `.claude/` (and each agent's model and effort) |
 | `npm run db:generate`                   | Generate a Drizzle migration after editing `apps/server/src/db/schema`    |
 | `npm run db:migrate:local`              | Apply migrations to the local simulated D1                                |
 | `npm run deploy`                        | Build the web app and deploy the Worker (needs a Cloudflare login)        |
 
 Migrations live in `apps/server/drizzle`, are committed, and are applied by Wrangler
 (`wrangler d1 migrations apply`), not at Worker startup.
+
+## The AI SDLC (GitHub Actions and the Project board)
+
+Cards on the repository's GitHub Project board drive Claude in GitHub Actions: a card with just a
+title gets a plan in its issue; `/approve` (or dragging it to In Progress) has Claude implement it on
+a `<type>/<issue>-<slug>` branch and open a pull request; an AI review, CI fixes and review fixes
+follow; once you approve the pull request and every thread is resolved, the pipeline merges it and
+`main` deploys. The board's columns (Todo, In Progress, In Review, Blocked, Done) and its AI stage
+field show where each card is. Bugs and plans live in issues, not in files. When the Claude plan's
+usage limit is reached, the pipeline pauses and carries on after the reset, with the work in progress
+kept as an artifact.
+
+Setup, in short (details in [`docs/ai-sdlc.md`](docs/ai-sdlc.md#setup)):
+
+1. Secret `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`), and the Claude GitHub App on the repo.
+2. Secret `SDLC_TOKEN`: a classic personal access token with the `project` and `public_repo` scopes.
+3. Variable `PROJECT_NUMBER`: the number in the board's URL.
+4. Merge to `main`, then run **SDLC doctor** from the Actions tab.
+
+The same custom agents (`.claude/agents`) and skills (`.claude/skills`) work in a local Claude Code
+session: ask for the `ui-engineer`, the `code-reviewer`, or the `pre-push-checks` skill.
 
 ## Deploying to Cloudflare
 

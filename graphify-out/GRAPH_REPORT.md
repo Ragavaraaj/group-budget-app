@@ -1,424 +1,386 @@
 # Graph Report - group-budget-app  (2026-10-19)
 
 ## Corpus Check
-- 271 files · ~165,205 words
-- Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 8 file(s) not represented in the graph (top: (none) 4, .example 1, .jsonc 1)
+- cluster-only mode — file stats not available
 
 ## Summary
-- 1684 nodes · 5702 edges · 74 communities (70 shown, 4 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 73 edges (avg confidence: 0.89)
-- Token cost: 0 input · 0 output
+- 2037 nodes · 6662 edges · 66 communities (63 shown, 3 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 88 edges (avg confidence: 0.87)
+- Token cost: 50,358 input · 839 output
 
 ## Graph Freshness
-- Built from commit: `f6e0d89d`
+- Built from commit: `3bb9e6a0`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- e2e/helpers.ts
-- reports.ts
-- cn
-- auth/routes.ts
-- push.ts
-- expense-form-page.tsx
-- groups/repo.ts
-- uuidv7
-- handleUpdateFound
-- shared/src/index.ts
-- Button
-- database.ts
-- LiveChannel
-- bank.ts
-- biome.json
-- package.json
-- isStandalone
-- schemas/sync.ts
-- app.ts
-- compilerOptions
-- auth-context.tsx
-- join-page.tsx
-- types.ts
-- schemas/api.ts
-- server/src/index.ts
-- insights-page.tsx
-- settings-page.tsx
-- insights-page.tsx
-- balances-tab.tsx
-- generate.test.ts
-- entities.ts
-- server/test/helpers.ts
-- web/package.json
-- recurring-form-page.tsx
-- schema/index.ts
-- engine.ts
-- choices.test.ts
-- money.ts
-- components.json
-- filter.test.ts
-- shared/package.json
-- split-draft.ts
-- compilerOptions
-- server/package.json
-- dependencies
-- devDependencies
-- scripts
-- limits.ts
-- CLAUDE.md
-- apply.test.ts
-- recurring.ts
-- scripts
-- dependencies
-- ids.ts
-- devDependencies
-- app.test.ts
-- defaults.ts
-- SignInPanel
-- balances.ts
-- pages.ts
-- server/tsconfig.json
-- tsconfig.json
-- server/tsconfig.node.json
-- web/tsconfig.node.json
-- shared/tsconfig.json
-- server/vitest.config.ts
-- build-id.ts
-- open-links.tsx
-- periods.ts
-- dates.ts
-- format.ts
-- sync.test.ts
+- E2E Auth and API Tests
+- Sign-in Attempt Redemption
+- Shared Limits Constants
+- Dialog and Category Icons
+- Board Card Decisions
+- Sync Database Schema
+- App Pages and Navigation
+- Recurring Expense Generation and Dates
+- Navigation and Avatars UI
+- Recurring Form Controls
+- CSV Export and Pull Tests
+- Live Update Hub
+- Person Avatar and Alert Dialog
+- SDLC CLI Commands
+- Server Sync Tests
+- Session and OAuth Cookies
+- Root Package Config
+- App Startup and PWA Updates
+- Local Database and Hooks
+- Batch Writes and Group Membership
+- Server Schema and Test Helpers
+- Bank Import Page
+- Sync Engine
+- Live Channel Client
+- Biome Lint Config
+- Shared Package Config
+- Insights Charts and Budgets
+- TypeScript Project Configs
+- GitHub Client
+- Server Package Config
+- Local Repository Writes
+- Hono App Middleware
+- Context Hooks and Sync Status
+- Project Board Doctor
+- Repo Checks and Agent Policy
+- Server Config and Entry
+- Balances and Settlements UI
+- Server Test Setup
+- Board Events and Merge
+- Rate Limit Handling
+- Pull Apply Logic
+- API Zod Schemas
+- Card Polling and Pause
+- Web Package Config
+- shadcn Components Config
+- Branch Naming and Plans
+- Crypto and Tokens
+- Expense Filtering
+- Base TypeScript Config
+- Web Dependencies
+- Server Vitest and Sessions
+- Web Dev Dependencies
+- SDLC Package Config
+- Auth and Group Schema
+- Pull Request Review Posting
+- Budget Choices
+- Server HTML Pages
+- Web Scripts
+- Server Node TS Config
+- Category Breakdown
+- Web Node TS Config
+- Vite Config
 - Logger
-- sync-status.tsx
+- CSV Parsing
+- Build ID
+- Default Categories
 
 ## God Nodes (most connected - your core abstractions)
 1. `cn()` - 98 edges
 2. `Button()` - 66 edges
-3. `uuidv7()` - 54 edges
-4. `react` - 50 edges
-5. `useDb()` - 50 edges
+3. `vitest` - 56 edges
+4. `useDb()` - 50 edges
+5. `react` - 50 edges
 6. `InsightsPage()` - 45 edges
 7. `useMe()` - 39 edges
-8. `ImportPage()` - 37 edges
-9. `RecurringForm()` - 37 edges
+8. `RecurringForm()` - 37 edges
+9. `ImportPage()` - 34 edges
 10. `lucide-react` - 34 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `BUG-004: A long name with no spaces pushes some screens and dialogs sideways` --references--> `CategoryChips()`  [INFERRED]
-  docs/known-bugs.md → apps/web/src/features/expenses/form-fields.tsx
 - `Where things stand` --references--> `cn()`  [INFERRED]
   docs/roadmap.md → apps/web/src/lib/utils.ts
+- `Frontend` --references--> `resolveSplit()`  [INFERRED]
+  docs/frontend.md → apps/web/src/features/expenses/split-draft.ts
 - `Testing and quality` --references--> `Client`  [INFERRED]
   docs/testing.md → apps/server/test/helpers.ts
-- `BUG-005: Some drop-downs are the browser's own `<select>`, not the shadcn Select` --references--> `Checkbox()`  [INFERRED]
-  docs/known-bugs.md → apps/web/src/components/ui/checkbox.tsx
+- `Sync protocol` --references--> `NetworkError`  [INFERRED]
+  docs/sync.md → apps/web/src/lib/api.ts
 - `Sync protocol` --references--> `meta()`  [INFERRED]
   docs/sync.md → apps/web/src/db/repo.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (74 total, 4 thin omitted)
+## Communities (66 total, 3 thin omitted)
 
-### Community 0 - "e2e/helpers.ts"
+### Community 0 - "E2E Auth and API Tests"
+Cohesion: 0.06
+Nodes (61): Testing, Infrastructure and operations (Cloudflare), Api, expenseMutation(), me(), Setup, addDinner(), addExpenseOn() (+53 more)
+
+### Community 1 - "Sign-in Attempt Redemption"
 Cohesion: 0.05
-Nodes (60): Testing, Infrastructure and operations (Cloudflare), Api, expenseMutation(), Setup, addDinner(), addExpenseOn(), addPlaceholderMember() (+52 more)
+Nodes (52): ATTEMPT_WINDOW_MS, cancelAttempt(), googleStartUrl(), hasPendingAttempt(), redeemAttempt(), RedeemResult, redeemSchema, AuthApi (+44 more)
 
-### Community 1 - "reports.ts"
+### Community 2 - "Shared Limits Constants"
+Cohesion: 0.05
+Nodes (57): CATEGORY_NAME_MAX, DISPLAY_NAME_MAX, GROUP_NAME_MAX, INVITE_MAX_USES, INVITE_TTL_DAYS, MAX_BUDGETS_PER_GROUP, MAX_GROUP_MEMBERS, MAX_GROUPS_PER_USER (+49 more)
+
+### Community 3 - "Dialog and Category Icons"
+Cohesion: 0.16
+Nodes (40): useEngine(), CATEGORY_COLORS, CATEGORY_ICONS, CategoryIcon(), CategoryIconProps, Button(), Dialog(), DialogContent() (+32 more)
+
+### Community 4 - "Board Card Decisions"
+Cohesion: 0.08
+Nodes (47): Card, CardUpdate, Control, Action, CardSnapshot, decideCard(), fixAllowed(), GateResult (+39 more)
+
+### Community 5 - "Sync Database Schema"
+Cohesion: 0.08
+Nodes (48): auditLog, budgets, categories, expenses, processedMutations, recurringRules, settlements, syncColumns (+40 more)
+
+### Community 6 - "App Pages and Navigation"
 Cohesion: 0.14
-Nodes (22): BUDGET_OVER_BP, BUDGET_WARN_BP, budgetLevel, BudgetLike, BudgetStatus, evaluateBudgets(), newestPerCategory(), daysBetween() (+14 more)
+Nodes (42): App(), InsightsPage, AddExpenseFab(), HeroCard(), HeroStepper(), NotFoundPage(), PageHeader(), PageHeaderProps (+34 more)
 
-### Community 2 - "cn"
+### Community 7 - "Recurring Expense Generation and Dates"
 Cohesion: 0.10
-Nodes (29): items, NavItem, CATEGORY_COLORS, CATEGORY_ICONS, CategoryIconProps, PersonAvatar(), tintFor(), TINTS (+21 more)
+Nodes (41): everyoneStillIn, generateDueExpenses(), GenerateResult, seqSql(), addDays(), addMonths(), dateInMonth(), daysBetween() (+33 more)
 
-### Community 3 - "auth/routes.ts"
+### Community 8 - "Navigation and Avatars UI"
 Cohesion: 0.10
-Nodes (42): loginAttempts, base(), C, clearOauthCookie(), clearSessionCookie(), getOauthCookie(), OAUTH_COOKIE, OAUTH_TTL_MS (+34 more)
+Nodes (35): items, NavItem, HeroStepperProps, AlertDialogMedia(), AvatarBadge(), AvatarGroup(), AvatarGroupCount(), badgeVariants (+27 more)
 
-### Community 4 - "push.ts"
+### Community 9 - "Recurring Form Controls"
+Cohesion: 0.12
+Nodes (41): Select(), SelectItem(), SelectTrigger(), SelectValue(), Switch(), ToggleGroup(), ToggleGroupContext, ToggleGroupItem() (+33 more)
+
+### Community 10 - "CSV Export and Pull Tests"
+Cohesion: 0.06
+Nodes (32): BACKFILL_PREFIX, csvCell(), expensesToCsv(), rupees(), PullQuery, Environment, G, ME (+24 more)
+
+### Community 11 - "Live Update Hub"
+Cohesion: 0.07
+Nodes (28): Attachment, CHANGED_MESSAGE, LiveHub, MAX_SOCKETS_PER_USER, tagFor(), settlement(), Commands (run from the repo root), Conventions (+20 more)
+
+### Community 12 - "Person Avatar and Alert Dialog"
 Cohesion: 0.10
-Nodes (43): groups, budgets, categories, expenses, processedMutations, recurringRules, settlements, syncColumns (+35 more)
+Nodes (36): PersonAvatar(), tintFor(), TINTS, AlertDialog(), AlertDialogAction(), AlertDialogCancel(), AlertDialogContent(), AlertDialogDescription() (+28 more)
 
-### Community 5 - "expense-form-page.tsx"
-Cohesion: 0.20
-Nodes (27): Label(), Select(), SelectContent(), SelectItem(), SelectScrollDownButton(), SelectScrollUpButton(), SelectTrigger(), SelectValue() (+19 more)
-
-### Community 6 - "groups/repo.ts"
-Cohesion: 0.14
-Nodes (36): reserveSeq(), runBatch(), seqFor(), Statement, acceptInvite(), AcceptInviteResult, activeGroupCount(), activeMemberCount() (+28 more)
-
-### Community 7 - "uuidv7"
-Cohesion: 0.09
-Nodes (30): Plan, PullQuery, SyncApi, Environment, [asha, bala, chitra], dinner(), G, expenseRow() (+22 more)
-
-### Community 8 - "handleUpdateFound"
-Cohesion: 0.09
-Nodes (21): NOW(), hasPendingAttempt(), root, STARTED_BY, trackInteraction(), registerPwa(), ACTIVATION_GRACE_MS, handleUpdateFound() (+13 more)
-
-### Community 9 - "shared/src/index.ts"
-Cohesion: 0.15
-Nodes (30): auditLog, settleNotifications(), db, resetDb(), groupWithEverything(), connect(), Connection, connectRaw() (+22 more)
-
-### Community 10 - "Button"
-Cohesion: 0.22
-Nodes (28): SignedInContext, useEngine(), useSignedIn(), Button(), Dialog(), DialogContent(), DialogDescription(), DialogFooter() (+20 more)
-
-### Community 11 - "database.ts"
+### Community 13 - "SDLC CLI Commands"
 Cohesion: 0.13
-Nodes (31): BudgetDb, getDb(), open, wipeDb(), newestFirst(), personName(), LocalBudget, LocalCategory (+23 more)
+Nodes (40): changeTypeFor(), blockCard(), deferWork(), main(), repoRoot(), mergeCommand(), afterFix(), afterImplement() (+32 more)
 
-### Community 12 - "LiveChannel"
+### Community 14 - "Server Sync Tests"
+Cohesion: 0.12
+Nodes (26): settleNotifications(), groupWithEverything(), connect(), Connection, connectRaw(), pushExpense(), settle(), sharedGroup() (+18 more)
+
+### Community 15 - "Session and OAuth Cookies"
+Cohesion: 0.10
+Nodes (37): base(), C, clearOauthCookie(), clearSessionCookie(), getOauthCookie(), OAUTH_COOKIE, OAUTH_TTL_MS, SESSION_COOKIE (+29 more)
+
+### Community 16 - "Root Package Config"
+Cohesion: 0.05
+Nodes (43): allowScripts, esbuild, workerd, devDependencies, @biomejs/biome, concurrently, @playwright/test, @types/node (+35 more)
+
+### Community 17 - "App Startup and PWA Updates"
+Cohesion: 0.09
+Nodes (21): NOW(), root, STARTED_BY, trackInteraction(), registerPwa(), ACTIVATION_GRACE_MS, handleUpdateFound(), LastAutoUpdate (+13 more)
+
+### Community 18 - "Local Database and Hooks"
+Cohesion: 0.11
+Nodes (34): SignedIn, BudgetDb, getDb(), getMeta(), open, MONTH_START_KEY, newestFirst(), personName() (+26 more)
+
+### Community 19 - "Batch Writes and Group Membership"
+Cohesion: 0.14
+Nodes (38): reserveSeq(), runBatch(), seqFor(), Statement, provisionUser(), recordLogin(), acceptInvite(), AcceptInviteResult (+30 more)
+
+### Community 20 - "Server Schema and Test Helpers"
+Cohesion: 0.09
+Nodes (15): app, b64url(), Client, db, EnvOverrides, fakeIdToken(), mockGoogleToken(), ORIGIN (+7 more)
+
+### Community 21 - "Bank Import Page"
+Cohesion: 0.10
+Nodes (32): Checkbox(), useExpensesOfGroups(), ALIASES, BANK_PRESETS, DateOrder, detectBank(), detectColumns(), ExistingExpense (+24 more)
+
+### Community 22 - "Sync Engine"
+Cohesion: 0.10
+Nodes (14): SyncApi, browserEnvironment, describeError(), endsCycle(), inStep(), isSessionEnd(), StepDetail, StepFailed (+6 more)
+
+### Community 23 - "Live Channel Client"
 Cohesion: 0.10
 Nodes (6): LiveChannel, LiveOptions, LiveSocket, channel(), connections, FakeSocket
 
-### Community 13 - "bank.ts"
-Cohesion: 0.09
-Nodes (30): ALIASES, BANK_PRESETS, DateOrder, detectBank(), detectColumns(), ExistingExpense, Field, findDuplicates() (+22 more)
-
-### Community 14 - "biome.json"
+### Community 24 - "Biome Lint Config"
 Cohesion: 0.05
 Nodes (39): source, assist, actions, noUnusedImports, noUnusedVariables, useExhaustiveDependencies, useHookAtTopLevel, css (+31 more)
 
-### Community 15 - "package.json"
-Cohesion: 0.05
-Nodes (41): allowScripts, esbuild, workerd, devDependencies, @biomejs/biome, concurrently, @playwright/test, @types/node (+33 more)
+### Community 25 - "Shared Package Config"
+Cohesion: 0.07
+Nodes (31): dependencies, zod, devDependencies, fast-check, vitest, exports, vitest, zod (+23 more)
 
-### Community 16 - "isStandalone"
-Cohesion: 0.36
-Nodes (5): isStandalone(), BeforeInstallPromptEvent, InstallPrompt, useInstallPrompt(), install()
-
-### Community 17 - "schemas/sync.ts"
+### Community 26 - "Insights Charts and Budgets"
 Cohesion: 0.13
-Nodes (14): categoryDataSchema, categoryRowSchema, ENTITY_NAMES, groupRowSchema, recurringRowSchema, settlementRowSchema, mutationBase, mutationResultSchema (+6 more)
+Nodes (29): useCategoriesOfGroups(), BAR, BudgetBar(), BarDatum, CategoryBars(), TrendChart(), InsightsPage(), View (+21 more)
 
-### Community 18 - "app.ts"
-Cohesion: 0.17
-Nodes (24): App, AppEnv, createApp(), Config, originCheck(), SAFE_METHODS, requestLogger(), AuthContext (+16 more)
+### Community 27 - "TypeScript Project Configs"
+Cohesion: 0.06
+Nodes (30): compilerOptions, paths, types, extends, include, compilerOptions, jsx, lib (+22 more)
 
-### Community 19 - "compilerOptions"
-Cohesion: 0.22
-Nodes (8): compilerOptions, jsx, lib, paths, types, extends, include, ../../tsconfig.base.json
-
-### Community 20 - "auth-context.tsx"
-Cohesion: 0.11
-Nodes (21): ATTEMPT_WINDOW_MS, cancelAttempt(), redeemAttempt(), RedeemResult, redeemSchema, AuthContext, AuthProvider(), AuthState (+13 more)
-
-### Community 21 - "join-page.tsx"
-Cohesion: 0.20
-Nodes (17): useAuth(), SignedInProvider(), AppShell(), RequireAuth(), dismissed(), NotInstalledBanner(), SessionExpiredBanner(), BottomNav() (+9 more)
-
-### Community 22 - "types.ts"
+### Community 28 - "GitHub Client"
 Cohesion: 0.12
-Nodes (29): announce(), baseVersionFor(), deleteBudget(), deleteExpense(), deleteRecurring(), Listener, listeners, onLocalWrite() (+21 more)
+Nodes (31): Review, Env, createClient(), request(), Fetch, GitHubClient, GitHubError, paginate() (+23 more)
 
-### Community 23 - "schemas/api.ts"
-Cohesion: 0.08
-Nodes (26): googleStartUrl(), RFC-4648, base64url(), digest(), randomToken(), WebCrypto, acceptInviteRequestSchema, addPlaceholderResponseSchema (+18 more)
+### Community 29 - "Server Package Config"
+Cohesion: 0.06
+Nodes (32): dependencies, arctic, @budget/shared, drizzle-orm, hono, zod, devDependencies, @cloudflare/vitest-pool-workers (+24 more)
 
-### Community 24 - "server/src/index.ts"
+### Community 30 - "Local Repository Writes"
+Cohesion: 0.12
+Nodes (29): announce(), baseVersionFor(), Listener, listeners, meta(), onLocalWrite(), queue(), saveBudget() (+21 more)
+
+### Community 31 - "Hono App Middleware"
+Cohesion: 0.18
+Nodes (23): App, AppEnv, createApp(), Config, Db, originCheck(), SAFE_METHODS, requestLogger() (+15 more)
+
+### Community 32 - "Context Hooks and Sync Status"
 Cohesion: 0.15
-Nodes (18): cache, envSchema, loadConfig(), optionalText, app, fetch(), runScheduled(), scheduled() (+10 more)
+Nodes (21): SignedInContext, useDb(), useMe(), useSignedIn(), useSyncStatus(), describe(), SyncStatusChip(), useExpense() (+13 more)
 
-### Community 25 - "insights-page.tsx"
+### Community 33 - "Project Board Doctor"
+Cohesion: 0.17
+Nodes (26): openProject(), pauseLine(), renderControl(), saveControl(), Check, doctor(), table(), FIELD_STAGE (+18 more)
+
+### Community 34 - "Repo Checks and Agent Policy"
+Cohesion: 0.13
+Nodes (18): AGENT_POLICY, AgentPolicy, MODEL_ALIASES, callArgs(), checkBugRefs(), isTestPath(), SourceFile, claudeFiles() (+10 more)
+
+### Community 35 - "Server Config and Entry"
+Cohesion: 0.15
+Nodes (20): cache, envSchema, loadConfig(), optionalText, createDb(), memberships, app, fetch() (+12 more)
+
+### Community 36 - "Balances and Settlements UI"
+Cohesion: 0.27
+Nodes (20): Badge(), Card(), CardContent(), CardDescription(), CardHeader(), CardTitle(), deleteSettlement(), restoreSettlement() (+12 more)
+
+### Community 37 - "Server Test Setup"
+Cohesion: 0.11
+Nodes (7): app, Cloudflare, Env, beforeBatch(), counting(), ruleData(), today()
+
+### Community 38 - "Board Events and Merge"
+Cohesion: 0.24
+Nodes (20): boardCardForPr(), saveCard(), unblockCard(), boardEvent(), commentCommand(), IssueEvent, trusted(), deployed() (+12 more)
+
+### Community 39 - "Rate Limit Handling"
 Cohesion: 0.14
-Nodes (37): App(), InsightsPage, AddExpenseFab(), HeroCard(), HeroStepper(), HeroStepperProps, NotFoundPage(), PageHeader() (+29 more)
+Nodes (19): classifyRun(), DAYS, LIMIT_BACKOFF, LogEntry, MODEL_UNAVAILABLE, nextResume(), nextWallTime(), OVERLOADED (+11 more)
 
-### Community 26 - "settings-page.tsx"
+### Community 40 - "Pull Apply Logic"
 Cohesion: 0.16
-Nodes (30): AlertDialog(), AlertDialogAction(), AlertDialogCancel(), AlertDialogContent(), AlertDialogDescription(), AlertDialogFooter(), AlertDialogHeader(), AlertDialogMedia() (+22 more)
+Nodes (14): ApplyOptions, applyPull(), ApplyResult, purgeGroup(), setMeta(), entityTables(), tableFor(), Rejection (+6 more)
 
-### Community 27 - "insights-page.tsx"
-Cohesion: 0.14
-Nodes (27): Checkbox(), ToggleGroup(), ToggleGroupContext, ToggleGroupItem(), Toggle(), toggleVariants, useCategoriesOfGroups(), useExpensesOfGroups() (+19 more)
-
-### Community 28 - "balances-tab.tsx"
-Cohesion: 0.25
-Nodes (19): Badge(), badgeVariants, Card(), CardContent(), CardDescription(), CardHeader(), CardTitle(), deleteSettlement() (+11 more)
-
-### Community 29 - "generate.test.ts"
-Cohesion: 0.15
-Nodes (13): createDb(), recurringTombstoneSchedule(), scheduleOf(), beforeBatch(), counting(), ruleData(), today(), ruleData() (+5 more)
-
-### Community 30 - "entities.ts"
-Cohesion: 0.14
-Nodes (14): allocationAmountSchema, allocationSchema, budgetRowSchema, checkSplit(), expenseBaseSchema, expenseRowSchema, hasDuplicates(), memberRowSchema (+6 more)
-
-### Community 31 - "server/test/helpers.ts"
-Cohesion: 0.15
-Nodes (14): oauthStates, invites, app, b64url(), Client, EnvOverrides, fakeIdToken(), mockGoogleToken() (+6 more)
-
-### Community 32 - "web/package.json"
-Cohesion: 0.09
-Nodes (23): @budget/shared, vitest, zod, name, private, type, version, api (+15 more)
-
-### Community 33 - "recurring-form-page.tsx"
-Cohesion: 0.17
-Nodes (27): useDb(), useMe(), CategoryIcon(), Switch(), useCategories(), useGroups(), useMembers(), useRecurringRule() (+19 more)
-
-### Community 34 - "schema/index.ts"
-Cohesion: 0.17
-Nodes (10): Db, memberships, sessions, users, inFlight, everyoneStillIn, GenerateResult, db (+2 more)
-
-### Community 35 - "engine.ts"
+### Community 41 - "API Zod Schemas"
 Cohesion: 0.10
-Nodes (14): browserEnvironment, describeError(), endsCycle(), EngineOptions, inStep(), isSessionEnd(), StepDetail, StepFailed (+6 more)
+Nodes (19): acceptInviteRequestSchema, addPlaceholderResponseSchema, attemptRedeemRequestSchema, authConfigResponseSchema, createGroupRequestSchema, CreateInviteResponse, createInviteResponseSchema, devLoginRequestSchema (+11 more)
 
-### Community 36 - "choices.test.ts"
-Cohesion: 0.16
-Nodes (13): BudgetChoice, OVERALL, BreakdownRow, limitRows(), nameCategories(), budget(), category(), food (+5 more)
+### Community 42 - "Card Polling and Pause"
+Cohesion: 0.22
+Nodes (19): isPaused(), loadCard(), loadControl(), describe(), poll(), run(), snapshot(), pause() (+11 more)
 
-### Community 37 - "money.ts"
-Cohesion: 0.25
-Nodes (6): CURRENCY, formatters, MAX_PAISE, PAISE_PER_RUPEE, localDateSchema, paiseSchema
+### Community 43 - "Web Package Config"
+Cohesion: 0.11
+Nodes (17): @budget/shared, vitest, zod, name, private, type, version, clsx (+9 more)
 
-### Community 38 - "components.json"
+### Community 44 - "shadcn Components Config"
 Cohesion: 0.11
 Nodes (17): aliases, components, hooks, lib, ui, utils, iconLibrary, rsc (+9 more)
 
-### Community 39 - "filter.test.ts"
-Cohesion: 0.16
-Nodes (15): categoryChoices(), filterExpenses(), NO_FILTERS, norm(), SearchFilters, all, categories, chai (+7 more)
+### Community 45 - "Branch Naming and Plans"
+Cohesion: 0.21
+Nodes (14): branchName(), issueOfBranch(), isValidBranch(), slugify(), CHANGE_TYPES, ChangeType, extractPlan(), hasPlan() (+6 more)
 
-### Community 40 - "shared/package.json"
-Cohesion: 0.12
-Nodes (16): dependencies, zod, devDependencies, fast-check, vitest, exports, vitest, zod (+8 more)
+### Community 46 - "Crypto and Tokens"
+Cohesion: 0.18
+Nodes (12): constantTimeEqual(), encoder, createInvite(), RFC-4648, base64url(), digest(), randomToken(), sha256Hex() (+4 more)
 
-### Community 41 - "split-draft.ts"
-Cohesion: 0.12
-Nodes (23): newDraft(), parsePercent(), percentToString(), Resolved, resolveSplit(), SplitDraft, withType(), SplitSectionProps (+15 more)
+### Community 47 - "Expense Filtering"
+Cohesion: 0.17
+Nodes (14): categoryChoices(), filterExpenses(), NO_FILTERS, norm(), SearchFilters, all, categories, chai (+6 more)
 
-### Community 42 - "compilerOptions"
+### Community 48 - "Base TypeScript Config"
 Cohesion: 0.12
 Nodes (15): compilerOptions, esModuleInterop, isolatedModules, lib, module, moduleResolution, noEmit, noFallthroughCasesInSwitch (+7 more)
 
-### Community 43 - "server/package.json"
-Cohesion: 0.17
-Nodes (10): @budget/shared, vitest, zod, name, private, type, version, arctic (+2 more)
-
-### Community 44 - "dependencies"
+### Community 49 - "Web Dependencies"
 Cohesion: 0.13
 Nodes (15): dependencies, @budget/shared, class-variance-authority, clsx, dexie, dexie-react-hooks, lucide-react, radix-ui (+7 more)
 
-### Community 45 - "devDependencies"
+### Community 50 - "Server Vitest and Sessions"
+Cohesion: 0.17
+Nodes (4): db, now, @cloudflare/vitest-pool-workers, vitest
+
+### Community 51 - "Web Dev Dependencies"
 Cohesion: 0.15
 Nodes (13): devDependencies, fake-indexeddb, tailwindcss, @tailwindcss/vite, tw-animate-css, @types/react, @types/react-dom, vite (+5 more)
 
-### Community 46 - "scripts"
-Cohesion: 0.18
-Nodes (11): scripts, build, cf-typegen, db:generate, db:migrate:local, db:migrate:remote, deploy, dev (+3 more)
+### Community 52 - "SDLC Package Config"
+Cohesion: 0.15
+Nodes (12): bin, sdlc, description, devDependencies, vitest, name, private, scripts (+4 more)
 
-### Community 47 - "limits.ts"
-Cohesion: 0.14
-Nodes (13): CATEGORY_NAME_MAX, DISPLAY_NAME_MAX, GROUP_NAME_MAX, INVITE_MAX_USES, INVITE_TTL_DAYS, MAX_BUDGETS_PER_GROUP, MAX_GROUPS_PER_USER, MAX_IMPORT_ROWS (+5 more)
+### Community 53 - "Auth and Group Schema"
+Cohesion: 0.26
+Nodes (7): loginAttempts, oauthStates, groups, invites, sessions, users, drizzle-orm
 
-### Community 48 - "CLAUDE.md"
-Cohesion: 0.06
-Nodes (35): Attachment, CHANGED_MESSAGE, LiveHub, MAX_SOCKETS_PER_USER, tagFor(), settlement(), Commands (run from the repo root), Conventions (+27 more)
+### Community 54 - "Pull Request Review Posting"
+Cohesion: 0.26
+Nodes (10): ReviewOutput, buildReview(), commentableLines(), Finding, findingBody(), REVIEW_MARKER, ReviewPayload, Severity (+2 more)
 
-### Community 49 - "apply.test.ts"
-Cohesion: 0.17
-Nodes (14): ApplyOptions, applyPull(), ApplyResult, BACKFILL_PREFIX, purgeGroup(), getMeta(), setMeta(), apply() (+6 more)
-
-### Community 50 - "recurring.ts"
+### Community 55 - "Budget Choices"
 Cohesion: 0.27
-Nodes (12): generateDueExpenses(), seqSql(), addDays(), countDue(), daysUntilNext(), nextOccurrence(), nthOccurrence(), occurrencesAfter() (+4 more)
+Nodes (8): LocalBudget, BudgetDialogProps, BudgetChoice, OVERALL, budget(), food, rent, budgetRow()
 
-### Community 51 - "scripts"
-Cohesion: 0.29
-Nodes (7): scripts, build, dev, icons, preview, test, typecheck
-
-### Community 52 - "dependencies"
-Cohesion: 0.33
-Nodes (6): dependencies, arctic, @budget/shared, drizzle-orm, hono, zod
-
-### Community 53 - "ids.ts"
-Cohesion: 0.47
-Nodes (3): isUuid(), RandomSource, uuidv7Timestamp()
-
-### Community 54 - "devDependencies"
-Cohesion: 0.40
-Nodes (5): devDependencies, @cloudflare/vitest-pool-workers, drizzle-kit, vitest, wrangler
-
-### Community 55 - "app.test.ts"
-Cohesion: 0.25
-Nodes (3): app, Cloudflare, Env
-
-### Community 57 - "SignInPanel"
-Cohesion: 0.29
-Nodes (3): AuthApi, SignInPanel(), AuthConfigResponse
-
-### Community 58 - "balances.ts"
-Cohesion: 0.24
-Nodes (11): ActivityKind, buildActivity(), deriveMoney(), GroupMoney, kindOf(), Allocation, BalanceExpense, BalanceSettlement (+3 more)
-
-### Community 59 - "pages.ts"
+### Community 56 - "Server HTML Pages"
 Cohesion: 0.50
 Nodes (7): confirmPage(), devIdpPage(), escapeHtml(), layout(), messagePage(), PAGE_CSP, Testing and quality
 
-### Community 60 - "server/tsconfig.json"
+### Community 57 - "Web Scripts"
 Cohesion: 0.29
-Nodes (6): compilerOptions, paths, types, extends, include, ../../tsconfig.base.json
+Nodes (7): scripts, build, dev, icons, preview, test, typecheck
 
-### Community 61 - "tsconfig.json"
-Cohesion: 0.29
-Nodes (6): compilerOptions, lib, types, extends, include, ./tsconfig.base.json
-
-### Community 62 - "server/tsconfig.node.json"
+### Community 58 - "Server Node TS Config"
 Cohesion: 0.33
 Nodes (5): compilerOptions, types, extends, include, ../../tsconfig.base.json
 
-### Community 63 - "web/tsconfig.node.json"
+### Community 59 - "Category Breakdown"
+Cohesion: 0.47
+Nodes (4): BreakdownRow, limitRows(), nameCategories(), CategoryTotal
+
+### Community 60 - "Web Node TS Config"
 Cohesion: 0.33
 Nodes (5): compilerOptions, types, extends, include, ../../tsconfig.base.json
 
-### Community 64 - "shared/tsconfig.json"
+### Community 61 - "Vite Config"
 Cohesion: 0.33
-Nodes (5): compilerOptions, types, extends, include, ../../tsconfig.base.json
+Nodes (5): api, @tailwindcss/vite, vite, vite-plugin-pwa, @vitejs/plugin-react
 
-### Community 67 - "open-links.tsx"
-Cohesion: 0.22
-Nodes (11): explain(), expiresIn(), OpenLinks(), HealthState, useHealth(), check(), apiCall(), apiGet() (+3 more)
-
-### Community 68 - "periods.ts"
-Cohesion: 0.35
-Nodes (10): fiscalYearLabel(), fiscalYearOf(), fiscalYearOfPeriod(), fiscalYearPeriodKeys(), fiscalYearRange(), MAX_MONTH_START_DAY, normaliseStartDay(), periodKeyOf() (+2 more)
-
-### Community 69 - "dates.ts"
-Cohesion: 0.42
-Nodes (9): addMonths(), dateInMonth(), daysInMonth(), formatUtc(), isValidLocalDate(), monthKey(), monthRange(), pad() (+1 more)
-
-### Community 70 - "format.ts"
-Cohesion: 0.44
-Nodes (7): formatMonth(), formatMonthShort(), formatPeriod(), formatRelative(), fromLocalDate(), parts(), shortDate()
-
-### Community 71 - "sync.test.ts"
-Cohesion: 0.25
-Nodes (7): budgetDataSchema, expenseDataSchema, settlementDataSchema, pullQuerySchema, pushRequestSchema, [a, b, group, category], expense()
-
-### Community 73 - "sync-status.tsx"
-Cohesion: 0.60
-Nodes (4): useSyncStatus(), describe(), SyncStatusChip(), dexie-react-hooks
+### Community 63 - "CSV Parsing"
+Cohesion: 0.70
+Nodes (3): DELIMITERS, detectDelimiter(), parseCsv()
 
 ## Knowledge Gaps
-- **26 isolated node(s):** `@budget/shared`, `zod`, `vitest`, `wrangler`, `../../tsconfig.base.json` (+21 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 499 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **4 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **22 isolated node(s):** `@biomejs/biome`, `concurrently`, `@types/node`, `typescript`, `vitest` (+17 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 596 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **3 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `me()` connect `split-draft.ts` to `e2e/helpers.ts`, `uuidv7`?**
-  _High betweenness centrality (0.116) - this node is a cross-community bridge._
-- **What connects `@budget/shared`, `zod`, `vitest` to the rest of the system?**
-  _26 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `e2e/helpers.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.0545361875637105 - nodes in this community are weakly interconnected._
-- **Why does `@playwright/test` connect `e2e/helpers.ts` to `package.json`?**
-  _High betweenness centrality (0.077) - this node is a cross-community bridge._
-- **Should `reports.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.14461538461538462 - nodes in this community are weakly interconnected._
-- **Why does `uuidv7()` connect `shared/src/index.ts` to `recurring-form-page.tsx`, `auth/routes.ts`, `choices.test.ts`, `expense-form-page.tsx`, `groups/repo.ts`, `uuidv7`, `sync.test.ts`, `Button`, `CLAUDE.md`, `apply.test.ts`, `ids.ts`, `types.ts`, `insights-page.tsx`, `generate.test.ts`?**
-  _High betweenness centrality (0.070) - this node is a cross-community bridge._
-- **Should `cn` be split into smaller, more focused modules?**
-  _Cohesion score 0.1006006006006006 - nodes in this community are weakly interconnected._
+- **Why does `vitest` connect `Server Vitest and Sessions` to `Sign-in Attempt Redemption`, `Shared Limits Constants`, `Dialog and Category Icons`, `Board Card Decisions`, `Recurring Expense Generation and Dates`, `Recurring Form Controls`, `CSV Export and Pull Tests`, `Person Avatar and Alert Dialog`, `SDLC CLI Commands`, `Server Sync Tests`, `App Startup and PWA Updates`, `Local Database and Hooks`, `Server Schema and Test Helpers`, `Bank Import Page`, `Live Channel Client`, `Shared Package Config`, `Insights Charts and Budgets`, `Local Repository Writes`, `Context Hooks and Sync Status`, `Repo Checks and Agent Policy`, `Server Config and Entry`, `Server Test Setup`, `Rate Limit Handling`, `Branch Naming and Plans`, `Crypto and Tokens`, `Expense Filtering`, `SDLC Package Config`, `Pull Request Review Posting`, `Budget Choices`, `Category Breakdown`, `CSV Parsing`, `Build ID`?**
+  _High betweenness centrality (0.277) - this node is a cross-community bridge._
+- **What connects `@biomejs/biome`, `concurrently`, `@types/node` to the rest of the system?**
+  _22 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `E2E Auth and API Tests` be split into smaller, more focused modules?**
+  _Cohesion score 0.05555555555555555 - nodes in this community are weakly interconnected._
+- **Why does `me()` connect `E2E Auth and API Tests` to `Recurring Form Controls`, `CSV Export and Pull Tests`?**
+  _High betweenness centrality (0.074) - this node is a cross-community bridge._
+- **Should `Sign-in Attempt Redemption` be split into smaller, more focused modules?**
+  _Cohesion score 0.05307797537619699 - nodes in this community are weakly interconnected._
+- **Why does `@playwright/test` connect `E2E Auth and API Tests` to `Root Package Config`?**
+  _High betweenness centrality (0.057) - this node is a cross-community bridge._
+- **Should `Shared Limits Constants` be split into smaller, more focused modules?**
+  _Cohesion score 0.047115384615384615 - nodes in this community are weakly interconnected._

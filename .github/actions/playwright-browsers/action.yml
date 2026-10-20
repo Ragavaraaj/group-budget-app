@@ -1,0 +1,27 @@
+name: Playwright browsers
+description: Installs the Playwright browsers, cached by Playwright's version. On a cache hit only the system packages are installed.
+inputs:
+  browsers:
+    description: Space-separated browsers to install.
+    default: chromium webkit
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ steps.version.outputs.version }}-${{ inputs.browsers }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        BROWSERS: ${{ inputs.browsers }}
+      run: npx playwright install --with-deps $BROWSERS
+    - if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      env:
+        BROWSERS: ${{ inputs.browsers }}
+      run: npx playwright install-deps $BROWSERS
